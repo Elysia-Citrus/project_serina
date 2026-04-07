@@ -1,0 +1,14 @@
+provider: deepseek
+model: deepseek-chat
+reasoner_model: deepseek-reasoner
+api_key_env: DEEPSEEK_API_KEY
+api_key: sk-4f2821c04eef4894973a5db34af91fbb
+base_url: https://api.deepseek.com
+temperature: 0.8
+max_tokens: 512
+timeout: 60
+max_history_turns: 8
+log_level: INFO
+exit_commands:
+  - exit
+  - quit
