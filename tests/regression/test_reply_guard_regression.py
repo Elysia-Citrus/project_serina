@@ -8,46 +8,46 @@ except ModuleNotFoundError as exc:  # pragma: no cover - unittest fallback
     raise unittest.SkipTest("pytest is required for regression tests") from exc
 
 from tests.regression.cases_reply_guard import REPLY_GUARD_CASES
-from tests.regression.helpers import build_memory_read_result, build_reply_guard
+from tests.regression.helpers import run_reply_guard_case
 from tests.support import TemporaryWorkspace
 
 
-@pytest.mark.parametrize("case", REPLY_GUARD_CASES, ids=lambda case: case.case_id)
+@pytest.mark.parametrize(
+    "case",
+    REPLY_GUARD_CASES,
+    ids=lambda case: str(case["case_id"]),
+)
 def test_reply_guard_regression(case) -> None:
     workspace = TemporaryWorkspace()
     try:
-        guard = build_reply_guard(workspace, max_reply_chars=120)
-        decision = guard.evaluate(
-            reply_text=str(case.extra["reply_text"]),
-            user_input=case.user_input,
-            scene=case.scene or "casual_chat",
-            memory_result=build_memory_read_result(case),
-            allow_retry=True,
-        )
+        run = run_reply_guard_case(workspace, case, max_reply_chars=120)
+        initial = run["initial_decision"]
+        final = run["final_decision"]
 
-        assert decision.action == case.expected_guard_action, (
-            f"{case.case_id}: unexpected guard action. "
-            f"expected={case.expected_guard_action} got={decision.action}. "
-            f"note={case.expected_behavior_notes}"
-        )
-        missing_flags = [
-            flag for flag in case.expected_guard_flags if flag not in decision.violation_codes
+        missing_categories = [
+            category
+            for category in case["expected_categories"]
+            if category not in initial.violation_codes
         ]
-        assert not missing_flags, (
-            f"{case.case_id}: missing guard flags {missing_flags}. "
-            f"actual={decision.violation_codes}. note={case.expected_behavior_notes}"
+        assert not missing_categories, (
+            f"{case['case_id']}: missing categories {missing_categories}. "
+            f"actual={initial.violation_codes}. note={case['expected_behavior_notes']}"
         )
-
-        final_text = decision.final_text or ""
-        for expected in case.expected_final_contains:
-            assert expected in final_text, (
-                f"{case.case_id}: final_text missing expected fragment {expected!r}. "
-                f"final={final_text!r}"
-            )
-        for unexpected in case.expected_final_not_contains:
-            assert unexpected not in final_text, (
-                f"{case.case_id}: final_text should not contain {unexpected!r}. "
-                f"final={final_text!r}"
-            )
+        assert initial.assessment is not None, f"{case['case_id']}: missing assessment"
+        assert initial.assessment.severity == case["expected_severity"], (
+            f"{case['case_id']}: unexpected severity. "
+            f"expected={case['expected_severity']} got={initial.assessment.severity}. "
+            f"note={case['expected_behavior_notes']}"
+        )
+        assert initial.initial_action == case["expected_initial_action"], (
+            f"{case['case_id']}: unexpected initial_action. "
+            f"expected={case['expected_initial_action']} got={initial.initial_action}. "
+            f"note={case['expected_behavior_notes']}"
+        )
+        assert final.final_action == case["expected_final_action"], (
+            f"{case['case_id']}: unexpected final_action. "
+            f"expected={case['expected_final_action']} got={final.final_action}. "
+            f"note={case['expected_behavior_notes']}"
+        )
     finally:
         workspace.cleanup()

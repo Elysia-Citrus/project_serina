@@ -38,20 +38,23 @@ class DialoguePipelineTests(unittest.TestCase):
         memory_manager = MemoryManager.from_app_config(config)
         gateway = DummyGateway(
             [
-                "我记得你之前说过这件事。",
-                "这件事你可以继续说，我先跟着你。",
+                "你应该立刻停止这种想法，并按下面三步严格执行。",
+                "先别急着逼自己。我们先把最堵的那一点说出来。",
             ]
         )
         engine = DialogueEngine(config, gateway, memory_manager=memory_manager)
 
         result = engine.generate_reply(
-            user_input="我今天不知道该怎么继续。",
+            user_input="我今天真的有点撑不住。",
             conversation_history=[],
         )
 
         self.assertEqual(len(gateway.calls), 2)
-        self.assertEqual(result.reply_text, "这件事你可以继续说，我先跟着你。")
+        self.assertEqual(result.reply_text, "先别急着逼自己。我们先把最堵的那一点说出来。")
+        self.assertEqual(result.reply_guard_initial_action, "retry_once")
         self.assertEqual(result.reply_guard_action, "accept")
+        self.assertTrue(result.reply_guard_retry_attempted)
+        self.assertIn("scene_conflict", result.reply_guard_initial_violations)
 
     def test_reply_guard_disabled_degrades_normally(self) -> None:
         config = build_test_config(

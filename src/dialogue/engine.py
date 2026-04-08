@@ -31,8 +31,15 @@ class DialogueResult:
     memory_result: MemoryReadResult
     reply_guard_action: str
     reply_guard_initial_action: str
+    reply_guard_final_action: str
     reply_guard_initial_violations: tuple[str, ...]
     reply_guard_retry_attempted: bool
+    reply_guard_retry_used: bool
+    reply_guard_rewrite_used: bool
+    reply_guard_fallback_reason: str | None
+    reply_guard_scene: str
+    reply_guard_memory_refs_checked: tuple[str, ...]
+    reply_guard_case_like_signature: str | None
     reply_guard_violations: tuple[str, ...]
     proactive_followup_candidate: None = None
 
@@ -147,8 +154,19 @@ class DialogueEngine:
             memory_result=memory_result,
             reply_guard_action=reply_guard_decision.action,
             reply_guard_initial_action=reply_guard_initial_action,
+            reply_guard_final_action=reply_guard_decision.final_action,
             reply_guard_initial_violations=reply_guard_initial_violations,
             reply_guard_retry_attempted=reply_guard_retry_attempted,
+            reply_guard_retry_used=reply_guard_retry_attempted,
+            reply_guard_rewrite_used=reply_guard_decision.rewrite_used,
+            reply_guard_fallback_reason=reply_guard_decision.fallback_reason,
+            reply_guard_scene=scene,
+            reply_guard_memory_refs_checked=reply_guard_decision.memory_refs_checked,
+            reply_guard_case_like_signature=(
+                reply_guard_decision.assessment.case_like_signature
+                if reply_guard_decision.assessment is not None
+                else None
+            ),
             reply_guard_violations=reply_guard_decision.violation_codes,
         )
         log_event(
@@ -157,8 +175,15 @@ class DialogueEngine:
             turn_trace=turn_trace,
             reply_guard_action=result.reply_guard_action,
             reply_guard_initial_action=result.reply_guard_initial_action,
+            reply_guard_final_action=result.reply_guard_final_action,
             reply_guard_initial_violations=result.reply_guard_initial_violations,
             reply_guard_retry_attempted=result.reply_guard_retry_attempted,
+            reply_guard_retry_used=result.reply_guard_retry_used,
+            reply_guard_rewrite_used=result.reply_guard_rewrite_used,
+            reply_guard_fallback_reason=result.reply_guard_fallback_reason,
+            reply_guard_scene=result.reply_guard_scene,
+            reply_guard_memory_refs_checked=result.reply_guard_memory_refs_checked,
+            reply_guard_case_like_signature=result.reply_guard_case_like_signature,
             reply_guard_violations=result.reply_guard_violations,
             proactive_followup_candidate_present=result.proactive_followup_candidate
             is not None,
@@ -211,6 +236,7 @@ class DialogueEngine:
         )
         reply_guard_decision = self.reply_guard.evaluate(
             reply_text=postprocess_result.final_text,
+            raw_reply_text=initial_response.text,
             user_input=user_input,
             scene=scene,
             memory_result=memory_result,
@@ -221,26 +247,36 @@ class DialogueEngine:
             level="DEBUG",
             turn_trace=turn_trace,
             reply_guard_action=reply_guard_decision.action,
+            reply_guard_initial_action=reply_guard_decision.initial_action,
+            reply_guard_final_action=reply_guard_decision.final_action,
             reply_guard_triggered=reply_guard_decision.triggered,
             reply_guard_violations=reply_guard_decision.violation_codes,
+            reply_guard_rewrite_used=reply_guard_decision.rewrite_used,
+            reply_guard_fallback_reason=reply_guard_decision.fallback_reason,
+            reply_guard_memory_refs_checked=reply_guard_decision.memory_refs_checked,
+            reply_guard_case_like_signature=(
+                reply_guard_decision.assessment.case_like_signature
+                if reply_guard_decision.assessment is not None
+                else None
+            ),
         )
 
-        if reply_guard_decision.action == "accept":
+        if reply_guard_decision.initial_action == "accept":
             return (
-                postprocess_result.final_text,
+                reply_guard_decision.final_text or postprocess_result.final_text,
                 initial_response.text,
                 initial_response.provider_name,
                 initial_response.model_name,
                 postprocess_result,
                 prompt_metadata,
                 reply_guard_decision,
-                reply_guard_decision.action,
+                reply_guard_decision.initial_action,
                 reply_guard_decision.violation_codes,
                 False,
                 total_latency_ms,
             )
 
-        if reply_guard_decision.action == "rewrite" and reply_guard_decision.final_text:
+        if reply_guard_decision.initial_action == "rewrite" and reply_guard_decision.final_text:
             return (
                 reply_guard_decision.final_text,
                 initial_response.text,
@@ -249,13 +285,13 @@ class DialogueEngine:
                 postprocess_result,
                 prompt_metadata,
                 reply_guard_decision,
-                reply_guard_decision.action,
+                reply_guard_decision.initial_action,
                 reply_guard_decision.violation_codes,
                 False,
                 total_latency_ms,
             )
 
-        if reply_guard_decision.action == "retry":
+        if reply_guard_decision.initial_action == "retry_once":
             retry_prompt_package = build_prompt_package(
                 user_input=user_input,
                 conversation_history=conversation_history,
@@ -303,6 +339,7 @@ class DialogueEngine:
             )
             second_decision = self.reply_guard.evaluate(
                 reply_text=retry_postprocess.final_text,
+                raw_reply_text=retry_response.text,
                 user_input=user_input,
                 scene=scene,
                 memory_result=memory_result,
@@ -313,21 +350,23 @@ class DialogueEngine:
                 level="DEBUG",
                 turn_trace=turn_trace,
                 reply_guard_action=second_decision.action,
+                reply_guard_initial_action=reply_guard_decision.initial_action,
+                reply_guard_final_action=second_decision.final_action,
                 reply_guard_triggered=second_decision.triggered,
                 reply_guard_violations=second_decision.violation_codes,
+                reply_guard_rewrite_used=second_decision.rewrite_used,
+                reply_guard_fallback_reason=second_decision.fallback_reason,
+                reply_guard_memory_refs_checked=second_decision.memory_refs_checked,
+                reply_guard_case_like_signature=(
+                    second_decision.assessment.case_like_signature
+                    if second_decision.assessment is not None
+                    else None
+                ),
             )
 
             final_text = retry_postprocess.final_text
-            if second_decision.action in {"rewrite", "safe_fallback"} and second_decision.final_text:
+            if second_decision.final_text:
                 final_text = second_decision.final_text
-            elif second_decision.action == "retry":
-                final_text = self.reply_guard.evaluate(
-                    reply_text=retry_postprocess.final_text,
-                    user_input=user_input,
-                    scene=scene,
-                    memory_result=memory_result,
-                    allow_retry=False,
-                ).final_text or retry_postprocess.final_text
 
             return (
                 final_text,
@@ -337,7 +376,7 @@ class DialogueEngine:
                 retry_postprocess,
                 retry_prompt_package.metadata,
                 second_decision,
-                reply_guard_decision.action,
+                reply_guard_decision.initial_action,
                 reply_guard_decision.violation_codes,
                 True,
                 total_latency_ms,
@@ -351,7 +390,7 @@ class DialogueEngine:
             postprocess_result,
             prompt_metadata,
             reply_guard_decision,
-            reply_guard_decision.action,
+            reply_guard_decision.initial_action,
             reply_guard_decision.violation_codes,
             False,
             total_latency_ms,

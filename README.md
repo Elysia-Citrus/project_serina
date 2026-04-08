@@ -19,6 +19,7 @@ Project Serina 当前是一个桌面 `agent` 文本聊天原型，目标不是�
 - [docs/08_eval_framework_guide.md](docs/08_eval_framework_guide.md)
 - [docs/09_memory_reply_guard_v0.1.md](docs/09_memory_reply_guard_v0.1.md)
 - [docs/10_memory_reply_guard_v0.2.md](docs/10_memory_reply_guard_v0.2.md)
+- [docs/11_reply_guard_regression_hardening.md](docs/11_reply_guard_regression_hardening.md)
 
 常用测试命令：
 

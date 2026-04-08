@@ -37,8 +37,15 @@ class CoordinatorTurnResult:
     memory_write_candidate_present: bool
     reply_guard_action: str
     reply_guard_initial_action: str
+    reply_guard_final_action: str
     reply_guard_initial_violations: tuple[str, ...]
     reply_guard_retry_attempted: bool
+    reply_guard_retry_used: bool
+    reply_guard_rewrite_used: bool
+    reply_guard_fallback_reason: str | None
+    reply_guard_scene: str
+    reply_guard_memory_refs_checked: tuple[str, ...]
+    reply_guard_case_like_signature: str | None
     reply_guard_violations: tuple[str, ...]
     proactive_followup_candidate_present: bool
     diagnostic_text: str | None = None
@@ -117,8 +124,15 @@ class Coordinator:
                 memory_write_candidate_present=False,
                 reply_guard_action="accept",
                 reply_guard_initial_action="accept",
+                reply_guard_final_action="accept",
                 reply_guard_initial_violations=(),
                 reply_guard_retry_attempted=False,
+                reply_guard_retry_used=False,
+                reply_guard_rewrite_used=False,
+                reply_guard_fallback_reason=None,
+                reply_guard_scene="empty_input",
+                reply_guard_memory_refs_checked=(),
+                reply_guard_case_like_signature="empty_input|clean",
                 reply_guard_violations=(),
                 proactive_followup_candidate_present=False,
                 diagnostic_text=self._build_diagnostic_text(
@@ -186,8 +200,15 @@ class Coordinator:
             memory_write_candidate_present=memory_write_result.wrote_any,
             reply_guard_action=result.reply_guard_action,
             reply_guard_initial_action=result.reply_guard_initial_action,
+            reply_guard_final_action=result.reply_guard_final_action,
             reply_guard_initial_violations=result.reply_guard_initial_violations,
             reply_guard_retry_attempted=result.reply_guard_retry_attempted,
+            reply_guard_retry_used=result.reply_guard_retry_used,
+            reply_guard_rewrite_used=result.reply_guard_rewrite_used,
+            reply_guard_fallback_reason=result.reply_guard_fallback_reason,
+            reply_guard_scene=result.reply_guard_scene,
+            reply_guard_memory_refs_checked=result.reply_guard_memory_refs_checked,
+            reply_guard_case_like_signature=result.reply_guard_case_like_signature,
             reply_guard_violations=result.reply_guard_violations,
             proactive_followup_candidate_present=bool(followup_scan.accepted),
             total_turn_latency_ms=turn_trace.elapsed_ms(),
@@ -215,8 +236,15 @@ class Coordinator:
             memory_write_candidate_present=memory_write_result.wrote_any,
             reply_guard_action=result.reply_guard_action,
             reply_guard_initial_action=result.reply_guard_initial_action,
+            reply_guard_final_action=result.reply_guard_final_action,
             reply_guard_initial_violations=result.reply_guard_initial_violations,
             reply_guard_retry_attempted=result.reply_guard_retry_attempted,
+            reply_guard_retry_used=result.reply_guard_retry_used,
+            reply_guard_rewrite_used=result.reply_guard_rewrite_used,
+            reply_guard_fallback_reason=result.reply_guard_fallback_reason,
+            reply_guard_scene=result.reply_guard_scene,
+            reply_guard_memory_refs_checked=result.reply_guard_memory_refs_checked,
+            reply_guard_case_like_signature=result.reply_guard_case_like_signature,
             reply_guard_violations=result.reply_guard_violations,
             proactive_followup_candidate_present=bool(followup_scan.accepted),
             diagnostic_text=diagnostic_text,

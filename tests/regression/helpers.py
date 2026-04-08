@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import json
+from typing import Mapping, Sequence
 
 from src.app.coordinator import Coordinator
 from src.dialogue.engine import DialogueEngine
@@ -128,3 +130,82 @@ def build_turn_input(case: RegressionCase) -> MemoryTurnInput:
         scene=case.scene or "casual_chat",
         turn_id=case.case_id,
     )
+
+
+def build_guard_case_memory_result(case: Mapping[str, object]) -> MemoryReadResult:
+    memories = case.get("injected_memories", [])
+    if not isinstance(memories, Sequence):
+        return MemoryReadResult()
+
+    now = now_timestamp()
+    items: list[MemoryItem] = []
+    for raw in memories:
+        if not isinstance(raw, Mapping):
+            continue
+        memory_type = str(raw.get("type", "episodic"))
+        expires_at = None
+        if bool(raw.get("expired")):
+            expires_at = format_timestamp(now - timedelta(hours=1))
+        metadata: dict[str, object] = {}
+        if "relevant" in raw:
+            metadata["relevant"] = bool(raw["relevant"])
+        item = MemoryItem(
+            id=str(raw.get("id", f"mem-{len(items) + 1}")),
+            memory_type=memory_type,  # type: ignore[arg-type]
+            content=str(raw.get("content", "")),
+            source_turn=str(raw.get("source_turn", "guard-case")),
+            source_message_excerpt=str(raw.get("content", ""))[:40],
+            created_at=format_timestamp(now - timedelta(days=1)),
+            updated_at=format_timestamp(now - timedelta(hours=2)),
+            confidence=float(raw.get("confidence", 0.9)),
+            ttl_days=7 if memory_type == "episodic" else None,
+            expires_at=expires_at,
+            decay_policy="ttl_expiry" if memory_type == "episodic" else "manual_override",
+            status="expired" if bool(raw.get("expired")) else "active",  # type: ignore[arg-type]
+            metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
+        )
+        items.append(item)
+
+    return MemoryReadResult(selected_items=tuple(items))
+
+
+def run_reply_guard_case(
+    workspace: TemporaryWorkspace,
+    case: Mapping[str, object],
+    **config_kwargs: object,
+) -> dict[str, object]:
+    guard = build_reply_guard(workspace, **config_kwargs)
+    memory_result = build_guard_case_memory_result(case)
+    initial = guard.evaluate(
+        reply_text=str(case["assistant_reply"]),
+        raw_reply_text=str(case.get("raw_reply_text", case["assistant_reply"])),
+        user_input=str(case["user_input"]),
+        scene=str(case.get("scene", "casual_chat")),
+        memory_result=memory_result,
+        allow_retry=True,
+    )
+
+    final_decision = initial
+    final_reply = initial.final_text or str(case["assistant_reply"])
+    retry_used = False
+    retry_reply = case.get("retry_reply")
+    if initial.initial_action == "retry_once":
+        retry_used = True
+        retry_text = str(retry_reply or "")
+        final_decision = guard.evaluate(
+            reply_text=retry_text,
+            raw_reply_text=retry_text,
+            user_input=str(case["user_input"]),
+            scene=str(case.get("scene", "casual_chat")),
+            memory_result=memory_result,
+            allow_retry=False,
+        )
+        final_reply = final_decision.final_text or retry_text
+
+    return {
+        "memory_result": memory_result,
+        "initial_decision": initial,
+        "final_decision": final_decision,
+        "final_reply": final_reply,
+        "retry_used": retry_used,
+    }
