@@ -1,0 +1,53 @@
+{
+  "total_cases": 8,
+  "success_count": 5,
+  "failure_count": 3,
+  "scene_match_rate": 1.0,
+  "length_band_match_rate": 0.625,
+  "forbidden_hit_case_count": 0,
+  "empty_response_count": 0,
+  "avg_latency_ms": 2110.88,
+  "p95_latency_ms": 2358,
+  "by_tag": {
+    "boundary": {
+      "total_cases": 2,
+      "success_count": 2,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 2015
+    },
+    "casual_chat": {
+      "total_cases": 2,
+      "success_count": 1,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 2124.5
+    },
+    "comfort": {
+      "total_cases": 2,
+      "success_count": 0,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 2194.5
+    },
+    "correction": {
+      "total_cases": 2,
+      "success_count": 2,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 2296.5
+    },
+    "greeting": {
+      "total_cases": 2,
+      "success_count": 2,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 1828
+    },
+    "project": {
+      "total_cases": 1,
+      "success_count": 0,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 2157
+    }
+  },
+  "output_dir": "C:\\Users\\48137\\Desktop\\project_serina\\artifacts\\evals\\2026-04-08_180014",
+  "mode": "live",
+  "suite_name": "smoke",
+  "trace_log_path": null
+}

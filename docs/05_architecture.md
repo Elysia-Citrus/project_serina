@@ -365,13 +365,15 @@ logs
   -> Serina App
   -> Dialogue Engine
       -> 读取 Persona / Dialogue Policy
-      -> 向 Memory Manager 请求相关记忆
+      -> infer_scene
+      -> 向 Memory Manager 请求少量相关记忆
       -> 组装 prompt
       -> 调用 LLM Gateway
+      -> postprocess
+      -> reply_guard（rewrite / retry once / safe fallback）
       -> 得到回复
   -> 返回回复给 UI
-  -> 生成记忆写入候选
-  -> Memory Manager 决定是否写入
+  -> Memory Manager 在回合结束后判断是否写入
   -> 生成会话摘要候选
   -> 写入 conversation_summary
 
@@ -379,6 +381,12 @@ logs
 
 这是 v0.1 最核心的主链路。
 它必须尽量简单、可调试、可观察。
+
+补充说明
+
+- memory 的读取发生在生成前
+- memory 的写入发生在本轮完成后
+- reply_guard 不引入第二个 LLM，只做低成本规则检查与一次保守重试
 
 ### 7.2 主动消息流程
 定时器触发 / 调度轮询

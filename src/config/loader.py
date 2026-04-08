@@ -60,7 +60,29 @@ class RuntimeConfig:
     max_tokens: int
     timeout: int
     max_history_turns: int
+    memory_enabled: bool
+    memory_write_enabled: bool
+    memory_store_type: str
+    memory_store_path: str
+    max_memory_injection_items: int
+    episodic_memory_ttl_days: int
+    memory_review_enabled: bool
+    merge_time_window_hours: int
+    followup_scheduler_enabled: bool
+    followup_cooldown_hours: int
+    reply_guard_enabled: bool
+    reply_guard_retry_once: bool
+    max_reply_chars: int
+    max_reply_chars_soft_limit: int
+    enable_file_logging: bool
+    log_dir: str
     log_level: str
+    debug_trace_enabled: bool
+    debug_show_scene: bool
+    debug_show_prompt_blocks: bool
+    debug_show_messages: bool
+    debug_cli_diagnostics_enabled: bool
+    debug_max_preview_chars: int
     exit_commands: tuple[str, ...]
 
 
@@ -101,15 +123,19 @@ def load_persona_config(path: str | Path) -> PersonaConfig:
         language=str(raw.get("language", "zh-CN")).strip(),
         self_concept=str(raw.get("self_concept", "")).strip()
         or "你是 Serina，是老师长期相处的私人数字伴侣。",
-        welcome_message=str(raw.get("welcome_message", f"{user_name}，我在。")).strip(),
+        welcome_message=str(raw.get("welcome_message") or f"{user_name}，我在。").strip(),
         core_traits=_require_string_list(raw, "core_traits", resolved_path),
         relationship_style=RelationshipStyleConfig(
             positioning=_require_string(relationship_raw, "positioning", resolved_path),
             default_address=_require_string(
-                relationship_raw, "default_address", resolved_path
+                relationship_raw,
+                "default_address",
+                resolved_path,
             ),
             intimacy_boundary=_require_string(
-                relationship_raw, "intimacy_boundary", resolved_path
+                relationship_raw,
+                "intimacy_boundary",
+                resolved_path,
             ),
         ),
         tone_rules=_require_string_list(raw, "tone_rules", resolved_path),
@@ -128,15 +154,21 @@ def load_policy_config(path: str | Path) -> PolicyConfig:
     return PolicyConfig(
         default_reply_style=_require_string(raw, "default_reply_style", resolved_path),
         short_reply_scenarios=_require_string_list(
-            raw, "short_reply_scenarios", resolved_path
+            raw,
+            "short_reply_scenarios",
+            resolved_path,
         ),
         long_reply_scenarios=_require_string_list(
-            raw, "long_reply_scenarios", resolved_path
+            raw,
+            "long_reply_scenarios",
+            resolved_path,
         ),
         comfort_rules=_require_string_list(raw, "comfort_rules", resolved_path),
         correction_rules=_require_string_list(raw, "correction_rules", resolved_path),
         memory_usage_rules=_require_string_list(
-            raw, "memory_usage_rules", resolved_path
+            raw,
+            "memory_usage_rules",
+            resolved_path,
         ),
         output_guardrails=_optional_string_list(raw.get("output_guardrails")),
     )
@@ -168,7 +200,65 @@ def load_runtime_config(path: str | Path) -> RuntimeConfig:
         max_tokens=_require_int(raw, "max_tokens", resolved_path),
         timeout=_require_int(raw, "timeout", resolved_path),
         max_history_turns=max(1, _require_int(raw, "max_history_turns", resolved_path)),
+        memory_enabled=_optional_bool(raw.get("memory_enabled"), True),
+        memory_write_enabled=_optional_bool(raw.get("memory_write_enabled"), True),
+        memory_store_type=_optional_string(raw.get("memory_store_type")) or "sqlite",
+        memory_store_path=_optional_string(raw.get("memory_store_path")) or "data/serina.db",
+        max_memory_injection_items=max(
+            2,
+            min(4, _optional_int(raw.get("max_memory_injection_items"), 3)),
+        ),
+        episodic_memory_ttl_days=max(
+            3,
+            min(14, _optional_int(raw.get("episodic_memory_ttl_days"), 7)),
+        ),
+        memory_review_enabled=_optional_bool(raw.get("memory_review_enabled"), True),
+        merge_time_window_hours=max(
+            6,
+            _optional_int(raw.get("merge_time_window_hours"), 72),
+        ),
+        followup_scheduler_enabled=_optional_bool(
+            raw.get("followup_scheduler_enabled"),
+            True,
+        ),
+        followup_cooldown_hours=max(
+            6,
+            _optional_int(raw.get("followup_cooldown_hours"), 24),
+        ),
+        reply_guard_enabled=_optional_bool(raw.get("reply_guard_enabled"), True),
+        reply_guard_retry_once=_optional_bool(raw.get("reply_guard_retry_once"), True),
+        max_reply_chars=max(
+            80,
+            _optional_int(
+                raw.get("max_reply_chars"),
+                _optional_int(raw.get("max_reply_chars_soft_limit"), 220),
+            ),
+        ),
+        max_reply_chars_soft_limit=max(
+            80,
+            _optional_int(
+                raw.get("max_reply_chars_soft_limit"),
+                _optional_int(raw.get("max_reply_chars"), 220),
+            ),
+        ),
+        enable_file_logging=_optional_bool(raw.get("enable_file_logging"), False),
+        log_dir=_optional_string(raw.get("log_dir")) or "data/logs",
         log_level=str(raw.get("log_level", "INFO")).strip().upper() or "INFO",
+        debug_trace_enabled=_optional_bool(raw.get("debug_trace_enabled"), False),
+        debug_show_scene=_optional_bool(raw.get("debug_show_scene"), True),
+        debug_show_prompt_blocks=_optional_bool(
+            raw.get("debug_show_prompt_blocks"),
+            False,
+        ),
+        debug_show_messages=_optional_bool(raw.get("debug_show_messages"), False),
+        debug_cli_diagnostics_enabled=_optional_bool(
+            raw.get("debug_cli_diagnostics_enabled"),
+            False,
+        ),
+        debug_max_preview_chars=max(
+            40,
+            _optional_int(raw.get("debug_max_preview_chars"), 160),
+        ),
         exit_commands=exit_commands or ("exit", "quit"),
     )
 
@@ -182,25 +272,24 @@ def _read_yaml_file(path: Path) -> dict[str, Any]:
     except OSError as exc:
         raise ConfigError(f"无法读取配置文件：{path}") from exc
 
-    yaml = _load_yaml_module()
-    if yaml is not None:
+    yaml_module = _load_yaml_module()
+    if yaml_module is not None:
         try:
-            raw = yaml.safe_load(text)
-        except yaml.YAMLError as exc:
+            raw = yaml_module.safe_load(text)
+        except yaml_module.YAMLError as exc:  # type: ignore[attr-defined]
             raise ConfigError(f"YAML 解析失败：{path}") from exc
     else:
         raw = _parse_minimal_yaml(text, path)
 
     if not isinstance(raw, dict) or not raw:
         raise ConfigError(f"配置文件内容为空或格式不正确：{path}")
-
     return raw
 
 
 def _load_yaml_module() -> Any | None:
     try:
         import yaml  # type: ignore
-    except ModuleNotFoundError as exc:
+    except ModuleNotFoundError:
         return None
     return yaml
 
@@ -210,8 +299,11 @@ def _parse_minimal_yaml(text: str, path: Path) -> dict[str, Any]:
     parsed, next_index = _parse_block(lines, 0, 0, path)
 
     while next_index < len(lines):
-        if lines[next_index].strip():
-            raise ConfigError(f"YAML 解析失败：{path} 第 {next_index + 1} 行存在未处理内容。")
+        stripped = lines[next_index].strip()
+        if stripped and not stripped.startswith("#"):
+            raise ConfigError(
+                f"YAML 解析失败：{path} 第 {next_index + 1} 行存在未处理内容。"
+            )
         next_index += 1
 
     if not isinstance(parsed, dict):
@@ -232,7 +324,7 @@ def _parse_block(
         raw_line = lines[index]
         stripped_line = raw_line.strip()
 
-        if not stripped_line:
+        if not stripped_line or stripped_line.startswith("#"):
             index += 1
             continue
 
@@ -256,12 +348,16 @@ def _parse_block(
             continue
 
         if ":" not in stripped_line:
-            raise ConfigError(f"YAML 解析失败：{path} 第 {index + 1} 行缺少键值分隔符。")
+            raise ConfigError(
+                f"YAML 解析失败：{path} 第 {index + 1} 行缺少键值分隔符。"
+            )
 
         if container is None:
             container = {}
         if not isinstance(container, dict):
-            raise ConfigError(f"YAML 解析失败：{path} 第 {index + 1} 行列表与映射混用。")
+            raise ConfigError(
+                f"YAML 解析失败：{path} 第 {index + 1} 行列表与映射混用。"
+            )
 
         key, raw_value = stripped_line.split(":", 1)
         key = key.strip()
@@ -324,8 +420,7 @@ def _require_string(data: dict[str, Any], key: str, path: Path) -> str:
 def _require_string_list(data: dict[str, Any], key: str, path: Path) -> list[str]:
     if key not in data:
         raise ConfigError(f"{path} 中缺少字段 `{key}`。")
-    value = data[key]
-    result = _optional_string_list(value)
+    result = _optional_string_list(data[key])
     if not result:
         raise ConfigError(f"{path} 中的 `{key}` 必须是非空字符串列表。")
     return result
@@ -352,6 +447,22 @@ def _optional_string(value: Any) -> str | None:
         raise ConfigError("期望字符串值，但实际不是字符串。")
     cleaned = value.strip()
     return cleaned or None
+
+
+def _optional_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ConfigError("期望布尔值，但实际不是布尔值。")
+    return value
+
+
+def _optional_int(value: Any, default: int) -> int:
+    if value is None:
+        return default
+    if not isinstance(value, int):
+        raise ConfigError("期望整数值，但实际不是整数。")
+    return value
 
 
 def _require_int(data: dict[str, Any], key: str, path: Path) -> int:

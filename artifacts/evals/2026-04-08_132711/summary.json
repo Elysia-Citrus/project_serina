@@ -1,0 +1,29 @@
+{
+  "total_cases": 2,
+  "success_count": 1,
+  "failure_count": 1,
+  "scene_match_rate": 1.0,
+  "length_band_match_rate": 1.0,
+  "forbidden_hit_case_count": 0,
+  "empty_response_count": 0,
+  "avg_latency_ms": 1655,
+  "p95_latency_ms": 1718,
+  "by_tag": {
+    "boundary": {
+      "total_cases": 1,
+      "success_count": 0,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 1592
+    },
+    "greeting": {
+      "total_cases": 2,
+      "success_count": 1,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 1655
+    }
+  },
+  "output_dir": "C:\\Users\\48137\\Desktop\\project_serina\\artifacts\\evals\\2026-04-08_132711",
+  "mode": "live",
+  "suite_name": "smoke",
+  "trace_log_path": null
+}

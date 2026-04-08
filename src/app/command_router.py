@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import shlex
+
+from src.memory.admin import MemoryAdminResult, MemoryAdminService
+
+
+@dataclass(frozen=True)
+class CommandRouteResult:
+    handled: bool
+    output_text: str | None = None
+    success: bool = True
+
+
+class CommandRouter:
+    def __init__(
+        self,
+        *,
+        memory_review_enabled: bool,
+        memory_admin: MemoryAdminService,
+    ) -> None:
+        self.memory_review_enabled = memory_review_enabled
+        self.memory_admin = memory_admin
+
+    def route(self, user_input: str) -> CommandRouteResult | None:
+        if not user_input.startswith("/memory"):
+            return None
+        if not self.memory_review_enabled:
+            return CommandRouteResult(
+                handled=True,
+                output_text="memory review is currently disabled.",
+                success=False,
+            )
+
+        try:
+            parts = shlex.split(user_input)
+        except ValueError as exc:
+            return CommandRouteResult(
+                handled=True,
+                output_text=f"Failed to parse command: {exc}",
+                success=False,
+            )
+
+        if len(parts) == 1 or parts[1] in {"help", "-h", "--help"}:
+            return self._wrap(self.memory_admin.help_text(), success=True)
+
+        action = parts[1]
+        if action == "list":
+            return self._handle_list(parts[2:])
+
+        if len(parts) < 3:
+            return self._wrap("Missing memory id.", success=False)
+
+        memory_id = parts[2]
+        if action == "archive":
+            return self._from_admin(self.memory_admin.archive(memory_id))
+        if action == "delete":
+            return self._from_admin(self.memory_admin.delete(memory_id))
+        if action == "expire":
+            return self._from_admin(self.memory_admin.expire(memory_id))
+        if action == "pin":
+            return self._from_admin(self.memory_admin.pin(memory_id, True))
+        if action == "unpin":
+            return self._from_admin(self.memory_admin.pin(memory_id, False))
+        if action == "update":
+            return self._handle_update(memory_id, parts[3:])
+
+        return self._wrap(
+            f"Unknown command: {action}\n{self.memory_admin.help_text()}",
+            success=False,
+        )
+
+    def _handle_list(self, tokens: list[str]) -> CommandRouteResult:
+        memory_type = None
+        status = "active"
+        for token in tokens:
+            if token in {"profile", "episodic"}:
+                memory_type = token
+                continue
+            if token in {"active", "expired", "archived"}:
+                status = token
+                continue
+            return self._wrap(f"Unsupported list filter: {token}", success=False)
+
+        return self._from_admin(
+            self.memory_admin.list_memories(
+                memory_type=memory_type,
+                status=status,
+            )
+        )
+
+    def _handle_update(self, memory_id: str, raw_updates: list[str]) -> CommandRouteResult:
+        if not raw_updates:
+            return self._wrap("Missing update fields.", success=False)
+
+        updates: dict[str, object] = {}
+        for item in raw_updates:
+            if "=" not in item:
+                return self._wrap(
+                    f"Invalid update parameter: {item}",
+                    success=False,
+                )
+            key, value = item.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key not in {"content", "confidence", "expires_at", "summary", "status"}:
+                return self._wrap(
+                    f"Unsupported update field: {key}",
+                    success=False,
+                )
+            if key == "confidence":
+                try:
+                    updates[key] = float(value)
+                except ValueError:
+                    return self._wrap("confidence must be numeric.", success=False)
+                continue
+            if key == "expires_at" and value.lower() in {"none", "null"}:
+                updates[key] = None
+                continue
+            updates[key] = value
+
+        return self._from_admin(self.memory_admin.update(memory_id, **updates))
+
+    def _from_admin(self, result: MemoryAdminResult) -> CommandRouteResult:
+        return CommandRouteResult(
+            handled=True,
+            output_text=result.message,
+            success=result.success,
+        )
+
+    def _wrap(self, message: str, *, success: bool) -> CommandRouteResult:
+        return CommandRouteResult(
+            handled=True,
+            output_text=message,
+            success=success,
+        )

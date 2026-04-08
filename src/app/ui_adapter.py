@@ -15,6 +15,9 @@ class TerminalUIAdapter:
     def display_system_message(self, message: str) -> None:
         self._display_labeled_message("[system]", message)
 
+    def display_debug_message(self, message: str) -> None:
+        self._display_labeled_message("[debug]", message)
+
     def _display_labeled_message(self, label: str, message: str) -> None:
         lines = message.splitlines() or [""]
         print(f"{label} > {lines[0]}")

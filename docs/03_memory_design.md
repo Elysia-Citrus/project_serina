@@ -486,6 +486,14 @@ v0.1 不追求复杂记忆中台，只实现最小够用版本。
 
 建议先实现以下四类数据结构：
 
+当前代码落地时，会先从最小可信切片开始：
+
+- `profile_memory`
+- `episodic_memory`
+
+其中 `relationship_memory` 与 `conversation_summary` 继续保留为后续扩展位，
+不会在这一轮里假装已经完整实现。
+
 ### 9.1 profile_memory
 存储稳定档案记忆，例如：
 - 兴趣

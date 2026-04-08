@@ -1,0 +1,65 @@
+{
+  "total_cases": 14,
+  "success_count": 13,
+  "failure_count": 1,
+  "scene_match_rate": 1.0,
+  "length_band_match_rate": 0.9285714285714286,
+  "forbidden_hit_case_count": 0,
+  "empty_response_count": 0,
+  "avg_latency_ms": 0,
+  "p95_latency_ms": 0,
+  "by_tag": {
+    "boundary": {
+      "total_cases": 5,
+      "success_count": 5,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "casual_chat": {
+      "total_cases": 3,
+      "success_count": 2,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "comfort": {
+      "total_cases": 3,
+      "success_count": 3,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "correction": {
+      "total_cases": 2,
+      "success_count": 2,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "deep_discussion": {
+      "total_cases": 3,
+      "success_count": 3,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "forbidden_style": {
+      "total_cases": 2,
+      "success_count": 1,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "greeting": {
+      "total_cases": 2,
+      "success_count": 2,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    },
+    "project": {
+      "total_cases": 1,
+      "success_count": 1,
+      "scene_match_rate": 1.0,
+      "avg_latency_ms": 0
+    }
+  },
+  "output_dir": "C:\\Users\\48137\\Desktop\\project_serina\\artifacts\\evals\\2026-04-08_132617",
+  "mode": "mock",
+  "suite_name": "smoke",
+  "trace_log_path": "C:\\Users\\48137\\Desktop\\project_serina\\artifacts\\evals\\2026-04-08_132617\\traces\\serina_trace_20260408_132617.jsonl"
+}

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 
 ROLE_PREFIXES = (
     "Serina：",
     "Serina:",
-    "芹奈：",
-    "芹奈:",
     "助手：",
     "助手:",
     "AI：",
@@ -15,8 +14,15 @@ ROLE_PREFIXES = (
 )
 
 AI_DISCLAIMER_PATTERNS = (
-    re.compile(r"^(作为(?:一个|一名)?(?:AI|人工智能)[^，。]*[，。]\s*)", re.IGNORECASE),
-    re.compile(r"^(作为(?:数字|智能)?助手[^，。]*[，。]\s*)", re.IGNORECASE),
+    re.compile(
+        r"^(作为(?:一个)?(?:AI助手|AI|人工智能|语言模型)[，,：:\s]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^(作为(?:数字|智能|AI)?助手[，,：:\s]*)", re.IGNORECASE),
+    re.compile(
+        r"^(我是(?:一个)?(?:AI助手|AI|人工智能|语言模型)[，,：:\s]*)",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -49,7 +55,7 @@ def strip_ai_disclaimer(text: str) -> str:
     cleaned = text.lstrip()
     for pattern in AI_DISCLAIMER_PATTERNS:
         cleaned = pattern.sub("", cleaned, count=1)
-    return cleaned.lstrip("，。:： ")
+    return cleaned.lstrip("，,：: ")
 
 
 def ensure_non_empty_text(text: str, fallback_text: str) -> str:
@@ -67,3 +73,16 @@ def safe_preview(text: str, limit: int = 80) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: limit - 3]}..."
+
+
+def sanitize_url_for_logging(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def redact_secrets(text: str, secrets: list[str] | tuple[str, ...]) -> str:
+    redacted = text
+    for secret in secrets:
+        if secret:
+            redacted = redacted.replace(secret, "***REDACTED***")
+    return redacted
