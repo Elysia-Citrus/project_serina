@@ -17,9 +17,11 @@ class EvalCase:
     preferred_patterns: tuple[str, ...] = ()
     notes: str | None = None
     tags: tuple[str, ...] = ()
+    memory_setup: tuple[dict[str, Any], ...] = ()
     should_follow_up: bool | None = None
     should_avoid_advice: bool | None = None
     should_feel_warm: bool | None = None
+    should_reference_recent_context: bool | None = None
     enabled: bool = True
     history_messages: tuple[dict[str, str], ...] = ()
 
@@ -34,9 +36,13 @@ class EvalCase:
             preferred_patterns=_as_string_tuple(data.get("preferred_patterns")),
             notes=_optional_string(data.get("notes")),
             tags=_as_string_tuple(data.get("tags")),
+            memory_setup=_as_mapping_tuple(data.get("memory_setup")),
             should_follow_up=_optional_bool(data.get("should_follow_up")),
             should_avoid_advice=_optional_bool(data.get("should_avoid_advice")),
             should_feel_warm=_optional_bool(data.get("should_feel_warm")),
+            should_reference_recent_context=_optional_bool(
+                data.get("should_reference_recent_context")
+            ),
             enabled=_optional_bool(data.get("enabled"), default=True) is not False,
             history_messages=_as_history_tuple(data.get("history_messages")),
         )
@@ -82,6 +88,9 @@ class EvalCaseResult:
     error_message: str | None
     provider_name: str | None
     model_name: str | None
+    memory_used_count: int = 0
+    memory_used_ids: tuple[str, ...] = ()
+    time_context_summary: str | None = None
     tags: tuple[str, ...] = ()
     notes: str | None = None
     manual_review_needed: bool = False
@@ -155,4 +164,17 @@ def _as_history_tuple(value: Any) -> tuple[dict[str, str], ...]:
         content = str(item.get("content", "")).strip()
         if role in {"user", "assistant"} and content:
             cleaned.append({"role": role, "content": content})
+    return tuple(cleaned)
+
+
+def _as_mapping_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("Expected memory_setup to be a list.")
+    cleaned: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Each memory_setup item must be a mapping.")
+        cleaned.append(dict(item))
     return tuple(cleaned)

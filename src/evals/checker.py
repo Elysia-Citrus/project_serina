@@ -47,6 +47,14 @@ FOLLOW_UP_PATTERNS = (
     r"还想继续",
 )
 
+RECENT_CONTEXT_PATTERNS = (
+    r"前几天",
+    r"之前",
+    r"刚才",
+    r"后来",
+    r"上次",
+)
+
 WARMTH_PATTERNS = (
     r"老师",
     r"我在",
@@ -101,6 +109,11 @@ def run_response_checks(case: EvalCase, response_text: str) -> ResponseCheck:
         failure_reasons.append("advice_should_be_avoided")
     if case.should_follow_up and not follow_up_detected:
         failure_reasons.append("missing_follow_up_signal")
+    if case.should_reference_recent_context and not find_pattern_hits(
+        normalized,
+        RECENT_CONTEXT_PATTERNS,
+    ):
+        manual_review_needed = True
     if template_style_detected:
         manual_review_needed = True
     if case.should_feel_warm and not warmth_signal_detected:

@@ -121,6 +121,8 @@ def _write_markdown(
                 f"- Input: {result.input}",
                 f"- Actual Scene: {result.actual_scene or 'N/A'}",
                 f"- Response Preview: {result.response_preview}",
+                f"- Memory Used: {result.memory_used_count} / {', '.join(result.memory_used_ids) if result.memory_used_ids else 'none'}",
+                f"- Time Context: {result.time_context_summary or 'N/A'}",
                 f"- Failure Reason: {reasons}",
                 "",
             ]

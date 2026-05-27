@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from src.assist_llm.models import AssistLLMCallRecord
 from src.config.loader import PersonaConfig, PolicyConfig, RuntimeConfig
 from src.memory.models import MemoryReadResult
 
@@ -45,6 +46,8 @@ class ReplyGuardDecision:
     retry_used: bool = False
     fallback_reason: str | None = None
     memory_refs_checked: tuple[str, ...] = ()
+    memory_reference_verdict: str | None = None
+    assist_record: AssistLLMCallRecord | None = None
 
     @property
     def action(self) -> GuardAction:

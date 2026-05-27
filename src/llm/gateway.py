@@ -27,6 +27,8 @@ class GatewayResponse:
 class GenerationOptions:
     temperature: float | None = None
     max_tokens: int | None = None
+    model_override: str | None = None
+    timeout_seconds: float | None = None
     request_tag: str = "default"
 
 
@@ -48,11 +50,12 @@ class LLMGateway:
             level="DEBUG",
             turn_trace=turn_trace,
             provider_name=self.runtime_config.provider,
-            model_name=self.runtime_config.model,
+            model_name=generation_options.model_override or self.runtime_config.model,
             message_count=len(messages),
             request_tag=generation_options.request_tag,
             temperature_override=generation_options.temperature,
             max_tokens_override=generation_options.max_tokens,
+            timeout_seconds_override=generation_options.timeout_seconds,
         )
         started_at = monotonic()
 
@@ -73,7 +76,7 @@ class LLMGateway:
                 level="ERROR",
                 turn_trace=turn_trace,
                 provider_name=self.runtime_config.provider,
-                model_name=self.runtime_config.model,
+                model_name=generation_options.model_override or self.runtime_config.model,
                 request_latency_ms=latency_ms,
                 request_tag=generation_options.request_tag,
                 error_type=type(exc).__name__,
@@ -91,7 +94,7 @@ class LLMGateway:
                 level="ERROR",
                 turn_trace=turn_trace,
                 provider_name=self.runtime_config.provider,
-                model_name=self.runtime_config.model,
+                model_name=generation_options.model_override or self.runtime_config.model,
                 request_latency_ms=latency_ms,
                 request_tag=generation_options.request_tag,
                 error_type=type(exc).__name__,
@@ -105,7 +108,7 @@ class LLMGateway:
             level="DEBUG",
             turn_trace=turn_trace,
             provider_name=self.runtime_config.provider,
-            model_name=self.runtime_config.model,
+            model_name=generation_options.model_override or self.runtime_config.model,
             request_latency_ms=latency_ms,
             request_tag=generation_options.request_tag,
             response_preview=safe_preview(
@@ -117,7 +120,7 @@ class LLMGateway:
         return GatewayResponse(
             text=response_text,
             provider_name=self.runtime_config.provider,
-            model_name=self.runtime_config.model,
+            model_name=generation_options.model_override or self.runtime_config.model,
             latency_ms=latency_ms,
         )
 

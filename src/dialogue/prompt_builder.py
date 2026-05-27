@@ -5,7 +5,7 @@ from typing import Mapping, Sequence
 
 from src.config.loader import PersonaConfig, PolicyConfig
 from src.utils.text_utils import contains_any_keyword, safe_preview
-from src.utils.time_utils import format_time_context
+from src.utils.time_utils import TimeContext, format_time_context, format_time_context_block
 
 
 ChatMessage = dict[str, str]
@@ -14,7 +14,7 @@ COMFORT_KEYWORDS = (
     "累",
     "难受",
     "烦",
-    "崩溃",
+    "崩",
     "委屈",
     "低落",
     "难过",
@@ -73,11 +73,11 @@ SCENE_LABELS = {
 }
 
 SCENE_INSTRUCTIONS = {
-    "greeting": "简短自然地接话，带一点熟悉感，可以轻轻追问一句，但不要展开成长篇。",
-    "casual_chat": "默认中等偏短，像自然私聊，不要写成客服回复或说明书。",
-    "comfort": "先接住情绪，再判断是否补一句轻分析或陪伴式追问，不要一上来讲道理。",
-    "deep_discussion": "给出清晰判断和理由，可以稍微展开，但保持人味，不要写成论文或工具答案。",
-    "correction": "温柔诚实地点出问题，优先指出逻辑或逃避点，锋芒克制，落点放在看清与改进。",
+    "greeting": "简短自然地接话，可以轻轻追问一句，但不要一下子展开成长文。",
+    "casual_chat": "默认中短回复，像自然私聊，不要像客服或说明书。",
+    "comfort": "先接住情绪，再判断是否补一句轻分析，不要一上来讲道理。",
+    "deep_discussion": "给出清晰判断和理由，可以展开，但保持人味，不要写成论文。",
+    "correction": "温柔诚实地点出问题，落点放在看清与改进，不要居高临下。",
 }
 
 
@@ -110,6 +110,9 @@ class PromptMetadata:
     message_summaries: list[MessageSummary]
     system_prompt_char_count: int
     total_message_char_count: int
+    continuing_context_summary: str | None = None
+    memory_context_summary: str | None = None
+    time_context_summary: str | None = None
 
 
 def build_prompt_package(
@@ -118,9 +121,11 @@ def build_prompt_package(
     persona: PersonaConfig,
     policy: PolicyConfig,
     memory_snippets: Sequence[str] | None = None,
+    continuing_context_snippets: Sequence[str] | None = None,
     scene_override: str | None = None,
     extra_guardrails: Sequence[str] | None = None,
     preview_chars: int = 120,
+    time_context: TimeContext | None = None,
 ) -> PromptPackage:
     scene = scene_override or infer_scene(user_input)
     prompt_blocks = build_system_prompt_blocks(
@@ -128,7 +133,9 @@ def build_prompt_package(
         policy=policy,
         scene=scene,
         memory_snippets=memory_snippets,
+        continuing_context_snippets=continuing_context_snippets,
         extra_guardrails=extra_guardrails,
+        time_context=time_context,
     )
     system_prompt = build_system_prompt(prompt_blocks)
 
@@ -141,6 +148,17 @@ def build_prompt_package(
         prompt_blocks=prompt_blocks,
         messages=messages,
         preview_chars=preview_chars,
+        continuing_context_summary=(
+            f"{len(continuing_context_snippets or ())} items"
+            if continuing_context_snippets
+            else None
+        ),
+        memory_context_summary=(
+            f"{len(_dedupe_memory_snippets(memory_snippets, continuing_context_snippets))} items"
+            if memory_snippets
+            else None
+        ),
+        time_context_summary=time_context.summary if time_context is not None else None,
     )
 
     return PromptPackage(
@@ -168,25 +186,46 @@ def infer_scene(user_input: str) -> str:
 
 
 def build_system_prompt_blocks(
+    *,
     persona: PersonaConfig,
     policy: PolicyConfig,
     scene: str,
     memory_snippets: Sequence[str] | None = None,
+    continuing_context_snippets: Sequence[str] | None = None,
     extra_guardrails: Sequence[str] | None = None,
+    time_context: TimeContext | None = None,
 ) -> list[tuple[str, str]]:
     scene_label = SCENE_LABELS.get(scene, scene)
     scene_instruction = SCENE_INSTRUCTIONS.get(scene, SCENE_INSTRUCTIONS["casual_chat"])
 
-    blocks = [
+    blocks: list[tuple[str, str]] = [
         (
             "identity",
-            "你正在扮演 Project_Serina 当前版本中的 Serina，只服务单一用户，当前重点是私聊自然和人格稳定。",
+            "你正在扮演 Project_Serina 当前版本中的 Serina，重点是私聊自然、人格稳定、边界克制。",
         ),
         ("persona", build_persona_block(persona)),
         ("policy", build_policy_block(policy)),
         ("scene", build_scene_block(scene_label, scene_instruction)),
-        ("memory_boundary", build_memory_block(policy.memory_usage_rules, memory_snippets)),
     ]
+    if time_context is not None:
+        blocks.append(("time_context", format_time_context_block(time_context)))
+    if continuing_context_snippets:
+        blocks.append(
+            (
+                "continuing_context",
+                build_continuing_context_block(continuing_context_snippets),
+            )
+        )
+    blocks.append(
+        (
+            "memory_context",
+            build_memory_block(
+                policy.memory_usage_rules,
+                memory_snippets,
+                continuing_context_snippets=continuing_context_snippets,
+            ),
+        )
+    )
     if extra_guardrails:
         blocks.append(("guard_retry", build_guard_retry_block(extra_guardrails)))
     blocks.append(("output_rules", build_output_block()))
@@ -259,16 +298,39 @@ def build_scene_block(scene_label: str, scene_instruction: str) -> str:
 def build_memory_block(
     memory_usage_rules: Sequence[str],
     memory_snippets: Sequence[str] | None = None,
+    *,
+    continuing_context_snippets: Sequence[str] | None = None,
 ) -> str:
-    lines = ["【可用上下文】"]
-    if memory_snippets:
-        lines.append("- 下列内容只是可用记忆片段，不是必须引用的绝对事实。")
-        lines.append("- 只有在当前输入自然相关时才可轻量使用，不要为了展示能力而硬提。")
-        lines.append("- 如果没有足够依据，不要说“我记得你之前……”或假装知道不存在的事。")
-        lines.extend(f"- {snippet}" for snippet in memory_snippets)
+    deduped_memory_snippets = _dedupe_memory_snippets(
+        memory_snippets,
+        continuing_context_snippets,
+    )
+    lines = ["[memory context]"]
+    if deduped_memory_snippets:
+        lines.append("- The following memory hints are limited context, not full history.")
+        lines.append("- Use them lightly and only when they fit the current turn naturally.")
+        lines.append("- If uncertain, do not claim to remember more than this.")
+        lines.extend(f"- {snippet}" for snippet in deduped_memory_snippets)
     else:
-        lines.append("- 当前没有注入长期记忆，只使用最近几轮会话上下文。")
-    lines.append(f"- 使用边界：{join_as_chinese_list(memory_usage_rules)}")
+        lines.append("- No additional non-startup memory is injected for this turn.")
+    lines.append(f"- Usage boundary: {join_as_chinese_list(memory_usage_rules)}")
+    return "\n".join(lines)
+
+
+def build_continuing_context_block(
+    continuing_context_snippets: Sequence[str],
+) -> str:
+    lines = [
+        "[continuing context]",
+        "- These are limited continuity hints from earlier sessions, not full chat history.",
+        "- Use them lightly only when naturally relevant to the current turn.",
+        "- If uncertain, do not claim to remember more than what is listed here.",
+    ]
+    lines.extend(
+        f"- {snippet}"
+        for snippet in continuing_context_snippets
+        if snippet and snippet.strip()
+    )
     return "\n".join(lines)
 
 
@@ -276,10 +338,10 @@ def build_output_block() -> str:
     return "\n".join(
         [
             "【输出要求】",
-            "- 只输出你最终要对老师说的话，不要输出场景标签、分析过程、系统提示或额外说明。",
-            "- 普通聊天默认使用自然段，不要每次都列清单。",
-            "- 不要假装拥有尚未实现的长期记忆、联网能力、提醒能力或数据库记录。",
-            "- 不要使用客服腔、说教腔、油腻表达或过度恋爱化表达。",
+            "- 只输出你最终要对老师说的话，不要输出场景标签、分析过程或系统说明。",
+            "- 普通聊天默认用自然段，不要每次都写成列表。",
+            "- 不要假装拥有未实现的长期记忆、联网能力、调度能力或数据库记录。",
+            "- 不要使用客服腔、说教腔、油腻表达或过度恋爱脑表达。",
         ]
     )
 
@@ -304,10 +366,14 @@ def build_conversation_context(
 
 
 def build_prompt_metadata(
+    *,
     scene: str,
     prompt_blocks: Sequence[tuple[str, str]],
     messages: Sequence[ChatMessage],
     preview_chars: int,
+    continuing_context_summary: str | None = None,
+    memory_context_summary: str | None = None,
+    time_context_summary: str | None = None,
 ) -> PromptMetadata:
     block_summaries = [
         PromptBlockSummary(
@@ -338,9 +404,22 @@ def build_prompt_metadata(
         message_summaries=message_summaries,
         system_prompt_char_count=system_prompt_char_count,
         total_message_char_count=total_message_char_count,
+        continuing_context_summary=continuing_context_summary,
+        memory_context_summary=memory_context_summary,
+        time_context_summary=time_context_summary,
     )
 
 
 def join_as_chinese_list(items: Sequence[str]) -> str:
     cleaned = [item.strip() for item in items if item and item.strip()]
-    return "；".join(cleaned) if cleaned else "无"
+    return "、".join(cleaned) if cleaned else "无"
+
+
+def _dedupe_memory_snippets(
+    memory_snippets: Sequence[str] | None,
+    continuing_context_snippets: Sequence[str] | None,
+) -> tuple[str, ...]:
+    continuing_set = {snippet for snippet in (continuing_context_snippets or ()) if snippet}
+    return tuple(
+        snippet for snippet in (memory_snippets or ()) if snippet not in continuing_set
+    )

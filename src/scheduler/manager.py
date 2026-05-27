@@ -5,6 +5,7 @@ from datetime import datetime
 
 from src.config.loader import AppConfig
 from src.memory.manager import MemoryManager
+from src.memory.models import SessionMaintenanceResult
 from src.observability.trace import TurnTrace
 from src.scheduler.followup_adapter import FollowUpScanResult, FollowUpSchedulerAdapter
 
@@ -36,6 +37,19 @@ class SchedulerManager:
     ) -> FollowUpScanResult:
         return self.followup_adapter.collect_candidates(
             turn_trace=turn_trace,
+            now=now,
+            limit=limit,
+        )
+
+    def run_session_maintenance(
+        self,
+        *,
+        session_id: str | None = None,
+        now: datetime | None = None,
+        limit: int = 1,
+    ) -> SessionMaintenanceResult:
+        return self.followup_adapter.memory_manager.run_session_maintenance(
+            session_id=session_id,
             now=now,
             limit=limit,
         )

@@ -1,0 +1,67 @@
+enabled: true
+language: zh-CN
+input_device: null
+output_device: null
+sample_rate: 16000
+channels: 1
+chunk_ms: 100
+record_timeout_s: 20
+silence_timeout_s: 1.0
+min_speech_s: 0.2
+silence_rms_threshold: 180
+recording_mode: endpoint_once
+fixed_record_seconds: 8
+vad_enabled: false
+partial_transcript_enabled: false
+partial_commit_strategy: none
+
+# Default local ASR: my-neuro/full-hub/asr_api.py
+asr_provider: myneuro_asr
+asr_model: my-neuro-asr-api
+asr_compute_device: cpu
+asr_api_key_env: SILICONFLOW_API_KEY
+asr_api_key: null
+asr_base_url: https://api.siliconflow.cn/v1
+myneuro_asr_url: http://127.0.0.1:1000/v1/upload_audio
+myneuro_asr_timeout_s: 120
+
+# Default local TTS: GPT-SoVITS-Bundle/api_v2.py
+tts_provider: gpt_sovits_v2
+tts_model: gpt-sovits-v2
+tts_voice_preset: serina_main
+tts_api_key_env: DASHSCOPE_API_KEY
+tts_api_key: null
+tts_base_url: https://dashscope.aliyuncs.com/api/v1
+gpt_sovits_v2_url: http://127.0.0.1:5000/tts
+gpt_sovits_v2_ref_audio_path: role_voice_api/neuro/01.wav
+gpt_sovits_v2_prompt_text: "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday."
+gpt_sovits_v2_text_lang: zh
+gpt_sovits_v2_prompt_lang: en
+gpt_sovits_v2_text_split_method: cut5
+gpt_sovits_v2_batch_size: 1
+gpt_sovits_v2_streaming_mode: true
+gpt_sovits_v2_media_type: wav
+gpt_sovits_v2_timeout_s: 120
+
+# Optional future MemOS bridge. SQLite remains the default memory store.
+myneuro_memos_base_url: http://127.0.0.1:8000
+
+default_voice_profile_id: serina_main
+voice_profiles_path: voice_profiles.yaml
+local_tts_enabled: true
+primary_tts_runtime_url: http://127.0.0.1:51771
+clone_tts_runtime_url: http://127.0.0.1:51772
+stream_playback_enabled: true
+tts_warmup_on_boot: false
+allow_spoken_commands: false
+echo_transcript_to_console: true
+debug_save_input_audio: true
+debug_save_output_audio: false
+temp_audio_dir: artifacts/voice/tmp
+auto_listen_enabled: false
+
+# Playback interruption. ESC and microphone barge-in both call AudioPlayer.stop().
+interrupt_enabled: true
+keyboard_interrupt_enabled: true
+microphone_interrupt_enabled: true
+interrupt_rms_threshold: 600

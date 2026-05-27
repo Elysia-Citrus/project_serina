@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 
 class TerminalUIAdapter:
     def __init__(self, assistant_label: str = "Serina", user_label: str = "老师") -> None:
@@ -20,7 +22,18 @@ class TerminalUIAdapter:
 
     def _display_labeled_message(self, label: str, message: str) -> None:
         lines = message.splitlines() or [""]
-        print(f"{label} > {lines[0]}")
+        self._safe_print(f"{label} > {lines[0]}")
         padding = " " * (len(label) + 3)
         for line in lines[1:]:
-            print(f"{padding}{line}")
+            self._safe_print(f"{padding}{line}")
+
+    def _safe_print(self, text: str) -> None:
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            encoded = text.encode(
+                sys.stdout.encoding or "utf-8",
+                errors="replace",
+            )
+            sys.stdout.buffer.write(encoded + b"\n")
+            sys.stdout.flush()

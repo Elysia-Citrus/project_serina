@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la *.toml *.txt)",
+      "Bash(xargs wc *)",
+      "Bash(git *)"
+    ]
+  }
+}

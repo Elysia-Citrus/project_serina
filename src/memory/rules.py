@@ -216,7 +216,7 @@ def extract_candidates(
 
 
 def should_inject_profile(memory: MemoryItem) -> bool:
-    return memory.memory_type == "profile" and (
+    return memory.memory_class in {"profile", "semantic"} and (
         memory.pinned or memory.confidence >= PROFILE_MIN_CONFIDENCE
     )
 
@@ -228,27 +228,43 @@ def score_memory_for_query(
     scene: str,
     now: datetime,
 ) -> MemorySelection | None:
-    if memory.memory_type == "profile" and not should_inject_profile(memory):
+    if memory.review_state in {"rejected", "archived"}:
         return None
-    if memory.memory_type == "episodic" and memory.is_expired(now):
+    if memory.namespace == "external_knowledge" and memory.owner_kind != "world":
+        return None
+    if memory.memory_class in {"profile", "semantic"} and not should_inject_profile(memory):
+        return None
+    if memory.memory_class in {"episodic", "task"} and memory.is_expired(now):
         return None
 
     query_tokens = extract_retrieval_tokens(user_input)
     if not query_tokens:
         return None
     memory_tokens = extract_retrieval_tokens(
-        f"{memory.display_text()} {memory.source_message_excerpt}"
+        " ".join(
+            filter(
+                None,
+                (
+                    memory.display_text(),
+                    memory.source_message_excerpt,
+                    memory.topic_key or "",
+                    memory.preference_target or "",
+                    memory.preference_value or "",
+                ),
+            )
+        )
     )
     overlap = sorted(query_tokens & memory_tokens)
     if not overlap:
         return None
 
     score = float(len(overlap))
-    if memory.memory_type == "profile":
-        score += 0.35 + max(0.0, memory.confidence - PROFILE_MIN_CONFIDENCE)
-        if memory.pinned:
-            score += 0.5
-    else:
+    score += max(0.0, memory.confidence - 0.6)
+    score += _memory_priority_bonus(memory)
+    if memory.pinned:
+        score += 0.5
+
+    if memory.memory_class in {"episodic", "task"}:
         age_days = max(0, int((now - parse_timestamp(memory.updated_at)).days))
         if age_days <= 2:
             score += 0.9
@@ -258,10 +274,27 @@ def score_memory_for_query(
             score += 0.2
         if memory.merge_count > 1:
             score += min(0.6, memory.merge_count * 0.1)
+    elif memory.last_confirmed_at is not None:
+        confirmed_days = max(0, int((now - parse_timestamp(memory.last_confirmed_at)).days))
+        if confirmed_days <= 7:
+            score += 0.4
+        elif confirmed_days <= 30:
+            score += 0.2
 
-    if scene == "comfort" and memory.memory_type == "episodic" and "状态" in memory.display_text():
+    if memory.representation == "preference":
+        score += 0.2
+    if memory.review_state == "pending_review":
+        score -= 0.25
+    elif memory.review_state == "stale":
+        score -= 0.5
+    if memory.memory_class == "impression":
+        score -= 0.35
+    if memory.namespace == "external_knowledge":
+        score -= 0.4
+
+    if scene == "comfort" and memory.memory_class in {"episodic", "task"} and "状态" in memory.display_text():
         score += 0.4
-    if scene == "correction" and memory.memory_type == "episodic" and (
+    if scene == "correction" and memory.memory_class in {"episodic", "task"} and (
         "卡" in memory.display_text() or "拖" in memory.display_text()
     ):
         score += 0.2
@@ -277,16 +310,62 @@ def sort_memory_selections(selections: list[MemorySelection]) -> list[MemorySele
     return sorted(
         selections,
         key=lambda selection: (
+            _memory_order_rank(selection.item),
             -selection.score,
-            0 if selection.item.memory_type == "profile" else 1,
             -parse_timestamp(selection.item.updated_at).timestamp(),
         ),
     )
 
 
 def format_memory_for_prompt(memory: MemoryItem) -> str:
-    prefix = "[profile]" if memory.memory_type == "profile" else "[episodic]"
-    return f"{prefix} {memory.display_text().strip().rstrip('。')}"
+    if memory.memory_class == "task":
+        prefix = "[task]"
+    elif memory.memory_class == "episodic":
+        prefix = "[episodic]"
+    elif memory.representation == "preference":
+        prefix = "[preference]"
+    elif memory.memory_class == "semantic":
+        prefix = "[semantic]"
+    elif memory.memory_class == "impression":
+        prefix = "[impression-soft]"
+    elif memory.namespace == "external_knowledge":
+        prefix = "[external-note]"
+    else:
+        prefix = "[profile]"
+    suffix = " (soft signal only)" if memory.memory_class == "impression" else ""
+    return f"{prefix} {memory.display_text().strip().rstrip('。')}{suffix}"
+
+
+def _memory_order_rank(memory: MemoryItem) -> int:
+    if memory.namespace == "external_knowledge":
+        return 6
+    if memory.memory_class == "task":
+        return 2
+    if memory.memory_class == "episodic":
+        return 3
+    if memory.memory_class == "semantic":
+        return 5
+    if memory.memory_class == "impression":
+        return 4
+    if memory.representation == "preference":
+        return 4
+    return 4
+
+
+def _memory_priority_bonus(memory: MemoryItem) -> float:
+    if memory.memory_class == "task":
+        return 1.0
+    if memory.memory_class == "episodic":
+        return 0.75
+    if memory.representation == "preference":
+        return 0.55
+    if memory.memory_class == "semantic":
+        return 0.35
+    if memory.memory_class == "impression":
+        return 0.1
+    if memory.namespace == "external_knowledge":
+        return -0.2
+    return 0.45
 
 
 def build_candidate_expires_at(candidate: MemoryCandidate, now: datetime) -> str | None:
@@ -303,6 +382,8 @@ def should_merge_episodic_candidate(
     merge_window_hours: int,
 ) -> bool:
     if candidate.memory_type != "episodic" or existing.memory_type != "episodic":
+        return False
+    if candidate.memory_class != existing.memory_class:
         return False
     if existing.status != "active" or existing.is_expired(now):
         return False
@@ -348,6 +429,32 @@ def merge_candidate_with_existing(
         followup_due_at=candidate.followup_due_at or existing.followup_due_at,
         metadata_json=candidate.metadata_json or existing.metadata_json,
         match_id=existing.id,
+        memory_class=candidate.memory_class,
+        representation=candidate.representation,
+        namespace=candidate.namespace,
+        owner_kind=candidate.owner_kind,
+        canonical_text=candidate.canonical_text or existing.canonical_text,
+        structured_payload_json=candidate.structured_payload_json
+        or existing.structured_payload_json,
+        evidence_json=candidate.evidence_json or existing.evidence_json,
+        source_kind=candidate.source_kind,
+        source_ref=candidate.source_ref or existing.source_ref,
+        review_state=candidate.review_state,
+        stale_reason=candidate.stale_reason,
+        last_confirmed_at=candidate.last_confirmed_at or existing.last_confirmed_at,
+        supersedes_id=candidate.supersedes_id,
+        contradicts_id=candidate.contradicts_id,
+        strength=max(existing.strength or existing.confidence, candidate.strength or candidate.confidence),
+        useful_score=max(existing.useful_score, candidate.useful_score),
+        preference_target=candidate.preference_target or existing.preference_target,
+        preference_value=candidate.preference_value or existing.preference_value,
+        preference_strength=max(
+            existing.preference_strength or 0.0,
+            candidate.preference_strength or 0.0,
+        )
+        or None,
+        preference_context=candidate.preference_context or existing.preference_context,
+        preference_polarity=candidate.preference_polarity or existing.preference_polarity,
     )
 
 
@@ -459,6 +566,7 @@ def _extract_profile_address(clause: str, *, source_turn: str) -> MemoryCandidat
         return MemoryCandidate(
             memory_type="profile",
             content=f"用户偏好被称呼为{value}。",
+            canonical_text=f"用户偏好被称呼为{value}。",
             source_turn=source_turn,
             source_message_excerpt=safe_preview(clause, 60),
             confidence=0.96,
@@ -468,6 +576,12 @@ def _extract_profile_address(clause: str, *, source_turn: str) -> MemoryCandidat
             candidate_reason="address_preference",
             tags=("address", "preference"),
             summary=f"用户偏好被称呼为{value}。",
+            memory_class="profile",
+            representation="preference",
+            preference_target="address",
+            preference_value=value,
+            preference_strength=0.96,
+            preference_polarity="prefer",
         )
     return None
 
@@ -487,6 +601,7 @@ def _extract_profile_avoid_address(
         return MemoryCandidate(
             memory_type="profile",
             content=f"用户不希望被称呼为{value}。",
+            canonical_text=f"用户不希望被称呼为{value}。",
             source_turn=source_turn,
             source_message_excerpt=safe_preview(clause, 60),
             confidence=0.93,
@@ -496,6 +611,12 @@ def _extract_profile_avoid_address(
             candidate_reason="address_avoidance",
             tags=("address", "avoidance"),
             summary=f"用户不希望被称呼为{value}。",
+            memory_class="profile",
+            representation="preference",
+            preference_target="address",
+            preference_value=value,
+            preference_strength=0.93,
+            preference_polarity="avoid",
         )
     return None
 
@@ -513,6 +634,7 @@ def _extract_interaction_preference(
     return MemoryCandidate(
         memory_type="profile",
         content=f"用户偏好互动方式：{statement}",
+        canonical_text=f"用户偏好互动方式：{statement}",
         source_turn=source_turn,
         source_message_excerpt=safe_preview(clause, 60),
         confidence=0.9,
@@ -520,8 +642,14 @@ def _extract_interaction_preference(
         decay_policy="manual_override",
         dedupe_key="profile:interaction_style",
         candidate_reason="interaction_preference",
-        tags=("interaction_style",),
+        tags=("interaction_style", "preference"),
         summary=f"用户偏好互动方式：{statement}",
+        memory_class="profile",
+        representation="preference",
+        preference_target="interaction_style",
+        preference_value=statement,
+        preference_strength=0.9,
+        preference_polarity="prefer",
     )
 
 
@@ -543,6 +671,7 @@ def _extract_profile_preference(
     return MemoryCandidate(
         memory_type="profile",
         content=f"用户{verb}{object_text}。",
+        canonical_text=f"用户{verb}{object_text}。",
         source_turn=source_turn,
         source_message_excerpt=safe_preview(clause, 60),
         confidence=0.85,
@@ -553,6 +682,12 @@ def _extract_profile_preference(
         topic_key=build_topic_key(object_text),
         tags=("preference", verb),
         summary=f"用户{verb}{object_text}。",
+        memory_class="profile",
+        representation="preference",
+        preference_target="topic",
+        preference_value=object_text,
+        preference_strength=0.85,
+        preference_polarity="prefer" if "喜欢" in verb else "avoid",
     )
 
 
@@ -570,6 +705,7 @@ def _extract_follow_up(
     return MemoryCandidate(
         memory_type="episodic",
         content=f"用户约定后续可跟进：{_to_user_statement(clause)}",
+        canonical_text=f"用户约定后续可跟进：{_to_user_statement(clause)}",
         source_turn=source_turn,
         source_message_excerpt=safe_preview(clause, 60),
         confidence=0.92,
@@ -582,6 +718,8 @@ def _extract_follow_up(
         summary=f"用户最近提到{topic_label}，并约定后续跟进。",
         followup_enabled=True,
         followup_due_at=build_followup_due_at(clause, now),
+        memory_class="task",
+        representation="abstract",
     )
 
 
@@ -604,6 +742,7 @@ def _extract_recent_task(
     return MemoryCandidate(
         memory_type="episodic",
         content=f"用户近期事项：{_to_user_statement(clause)}",
+        canonical_text=f"用户近期事项：{_to_user_statement(clause)}",
         source_turn=source_turn,
         source_message_excerpt=safe_preview(clause, 60),
         confidence=0.82,
@@ -614,6 +753,8 @@ def _extract_recent_task(
         topic_key=topic_key,
         tags=("task", "project"),
         summary=f"用户最近在做{topic_label}。",
+        memory_class="task",
+        representation="abstract",
     )
 
 
@@ -634,6 +775,7 @@ def _extract_emotion_state(
     return MemoryCandidate(
         memory_type="episodic",
         content=f"用户近期状态：{_to_user_statement(clause)}",
+        canonical_text=f"用户近期状态：{_to_user_statement(clause)}",
         source_turn=source_turn,
         source_message_excerpt=safe_preview(clause, 60),
         confidence=0.78,
@@ -644,6 +786,8 @@ def _extract_emotion_state(
         topic_key="emotion_state",
         tags=("emotion", emotion_label),
         summary=f"用户近期状态偏{emotion_label}。",
+        memory_class="episodic",
+        representation="abstract",
     )
 
 

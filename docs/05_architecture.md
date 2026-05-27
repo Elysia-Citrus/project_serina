@@ -1,8 +1,16 @@
 # 05_architecture.md
 
+> **本文档反映 v0.1 架构设计，已不作为当前实现的事实描述。**
+> 当前 v0.2 代码的现实以以下文档为准：
+> - `docs/00_product_overview.md` —— 当前能力范围与设计原则
+> - `docs/01_repo_guide.md` —— 仓库结构与模块导览
+> - `docs/17_voice_cli_usage.md` —— 语音 CLI 运行形态
+> - `docs/13_assist_llm_lane.md` —— 辅助 LLM 通道
+> - `docs/11_reply_guard_regression_hardening.md` —— 回复护栏系统
+
 ## 1. 文档目的
 
-本文档用于定义 Project_Serina v0.1 的整体架构。
+本文档最初用于定义 Project_Serina v0.1 的整体架构。当前代码已经越过纯文本 v0.1：语音 CLI、session memory、assist-llm lane 和本地 TTS runtime 都已进入仓库。下面的 v0.1 叙事保留为架构来路。
 
 它回答的问题不是“她说什么”，而是：
 
@@ -35,9 +43,9 @@ Serina 应首先是一个独立程序，而不是某个平台内的 bot。
 
 这三者不能揉成一团写在一个 prompt 里。
 
-### 2.3 先做文本，后接语音
-v0.1 只实现文本对话入口。  
-但架构上应允许未来替换或新增语音入口，而不推倒重来。
+### 2.3 文本主链路优先，语音复用主链路
+文本入口仍是最小稳定链路。  
+当前语音入口已经通过 `src/app/main_voice.py` 和 `src/voice/` 接入，并复用 `Coordinator / DialogueEngine / MemoryManager / ReplyGuard`。
 
 ### 2.4 本地优先，部署灵活
 v0.1 优先支持本地运行。  
@@ -51,7 +59,7 @@ v0.1 不引入复杂的分布式系统、重型中间件或大规模检索系统
 
 ## 3. v0.1 的总体边界
 
-v0.1 只做以下事情：
+v0.1 原始边界只做以下事情：
 
 - 单用户文本对话
 - 基础人格控制
@@ -59,15 +67,16 @@ v0.1 只做以下事情：
 - 定时提醒与轻主动消息
 - 基础日志与配置管理
 
-v0.1 暂不做：
+当前仍不追求：
 
-- 常驻语音
 - 环境感知
 - 联网检索
 - 多用户系统
 - 群聊支持
 - 复杂向量检索
 - 多 Agent 协同
+
+语音能力已经存在，但定位是本地 voice CLI 和本地 runtime 工具链，不是常驻多模态平台。
 
 因此，架构必须优先服务“稳定可用”，而不是“能力堆满”。
 
@@ -472,6 +481,8 @@ project_serina/
 ├─ src/
 │  ├─ app/
 │  │  ├─ main.py
+│  │  ├─ main_voice.py
+│  │  ├─ runtime.py
 │  │  ├─ coordinator.py
 │  │  └─ ui_adapter.py
 │  ├─ dialogue/
@@ -494,9 +505,23 @@ project_serina/
 │  │     └─ deepseek.py
 │  ├─ config/
 │  │  ├─ loader.py
+│  │  ├─ models.py
+│  │  ├─ validators.py
+│  │  ├─ yaml_utils.py
 │  │  ├─ persona_config.yaml
 │  │  ├─ policy_config.yaml
-│  │  └─ runtime_config.yaml
+│  │  ├─ runtime_config.yaml
+│  │  ├─ voice_config.yaml
+│  │  ├─ voice_profiles.yaml
+│  │  └─ local_tts_runtime.yaml
+│  ├─ voice/
+│  │  ├─ controller.py
+│  │  ├─ recorder.py
+│  │  ├─ asr.py
+│  │  ├─ synthesis.py
+│  │  ├─ tts.py
+│  │  ├─ playback.py
+│  │  └─ local_runtime_server.py
 │  ├─ storage/
 │  │  ├─ db.py
 │  │  ├─ models.py
@@ -544,11 +569,11 @@ Step 5
 
 ## 11. v0.2 预留接口
 
-虽然 v0.1 不实现语音与环境感知，但架构上要为其预留位置。
+语音已经从预留接口升级为当前子系统。环境感知仍是未来预留。
 
 推荐未来扩展为：
 
-[ Voice Input / Microphone / VAD / ASR ]
+[ Voice Input / Microphone / Endpoint / ASR ]
                     |
                     v
                [ Serina App ]
@@ -556,8 +581,8 @@ Step 5
     -----------------------------------------
     |            |            |             |
     v            v            v             v
-[ Dialogue ] [ Memory ] [ Scheduler ] [ Context Sensing ]
-[ Engine   ] [ Manager] [ Manager   ] [ (future)        ]
+[ Dialogue ] [ Memory ] [ Scheduler ] [ Voice Runtime ] [ Context Sensing ]
+[ Engine   ] [ Manager] [ Manager   ] [ Local TTS     ] [ (future)        ]
 预留原则
 UI 层可替换
 Dialogue Engine 不依赖“输入来自文本还是语音”
@@ -585,7 +610,7 @@ Project_Serina v0.1 是一个面向单用户的私人程序。
 
 逻辑清楚，模块边界明确
 后续人格、记忆、主动性都能独立迭代
-文本入口未来能平滑切到语音入口
+文本入口和语音入口能共享同一条对话核心
 代码不会因为平台变化而重写
 调试时能看清每一步发生了什么
 v0.1 不会因为过度设计而迟迟无法落地

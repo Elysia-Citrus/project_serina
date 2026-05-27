@@ -56,10 +56,25 @@ class FollowUpSchedulerAdapter:
         current_time = now or now_timestamp()
         accepted: list[FollowUpCandidate] = []
         rejected: list[dict[str, str]] = []
-        for memory in self.memory_manager.list_memories(
-            memory_type="episodic",
-            status="active",
-        ):
+        seen_ids: set[str] = set()
+        candidate_memories = list(
+            self.memory_manager.list_memories(
+                memory_class="task",
+                status="active",
+                review_states=("active",),
+            )
+        ) + list(
+            self.memory_manager.list_memories(
+                memory_type="episodic",
+                memory_class="episodic",
+                status="active",
+                review_states=("active",),
+            )
+        )
+        for memory in candidate_memories:
+            if memory.id in seen_ids:
+                continue
+            seen_ids.add(memory.id)
             accepted_candidate, rejection_reason = self._evaluate_memory(
                 memory,
                 now=current_time,

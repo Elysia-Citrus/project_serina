@@ -1,0 +1,19 @@
+profiles:
+  serina_main:
+    id: serina_main
+    provider: gpt_sovits_v2
+    runtime_id: clone
+    profile_kind: clone
+    model: gpt-sovits-v2
+    voice_preset: serina_main
+    speaker_id: null
+    voice_profile_id: null
+    reference_audio_path: ../../../my-neuro/full-hub/tts-hub/GPT-SoVITS-Bundle/role_voice_api/neuro/01.wav
+    asset_dir: ../../../my-neuro/full-hub/tts-hub/GPT-SoVITS-Bundle/role_voice_api/neuro
+    reference_text: "Hold on please, I'm busy. Okay, I think I heard him say he wants me to stream Hollow Knight on Tuesday and Thursday."
+    enabled: true
+    scene_style_hints:
+      default: gentle
+      comfort: warm
+      discussion: thoughtful
+      correction: steady

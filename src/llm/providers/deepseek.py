@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from time import monotonic
-from typing import Mapping, Sequence
 import json
 import socket
+from time import monotonic
+from typing import Mapping, Sequence
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -34,8 +34,8 @@ class DeepSeekProvider:
         api_key = self.runtime_config.api_key
         if not api_key:
             error_message = (
-                "DeepSeek API key 缺失。请设置环境变量 "
-                f"`{self.runtime_config.api_key_env}` 后再运行。"
+                "DeepSeek API key 缺失。请先设置环境变量 "
+                f"`{self.runtime_config.api_key_env}`。"
             )
             log_event(
                 "provider_config_error",
@@ -52,9 +52,13 @@ class DeepSeekProvider:
         safe_endpoint = sanitize_url_for_logging(endpoint)
         temperature = getattr(options, "temperature", None) or self.runtime_config.temperature
         max_tokens = getattr(options, "max_tokens", None) or self.runtime_config.max_tokens
+        model_name = getattr(options, "model_override", None) or self.runtime_config.model
+        timeout_seconds = (
+            getattr(options, "timeout_seconds", None) or self.runtime_config.timeout
+        )
         request_tag = getattr(options, "request_tag", "default")
         payload = {
-            "model": self.runtime_config.model,
+            "model": model_name,
             "messages": [dict(message) for message in messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -77,19 +81,17 @@ class DeepSeekProvider:
             level="DEBUG",
             turn_trace=turn_trace,
             provider_name="deepseek",
-            model_name=self.runtime_config.model,
+            model_name=model_name,
             provider_endpoint=safe_endpoint,
             message_count=len(messages),
             request_tag=request_tag,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         )
 
         try:
-            with urllib_request.urlopen(
-                request,
-                timeout=self.runtime_config.timeout,
-            ) as response:
+            with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
                 raw_body = response.read().decode("utf-8")
         except urllib_error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
@@ -100,7 +102,7 @@ class DeepSeekProvider:
                 level="ERROR",
                 turn_trace=turn_trace,
                 provider_name="deepseek",
-                model_name=self.runtime_config.model,
+                model_name=model_name,
                 provider_endpoint=safe_endpoint,
                 request_latency_ms=latency_ms,
                 request_tag=request_tag,
@@ -108,7 +110,7 @@ class DeepSeekProvider:
                 error_message=safe_error_message,
             )
             raise DeepSeekProviderError(
-                f"DeepSeek API 返回 HTTP {exc.code}：{safe_error_message}"
+                f"DeepSeek API 返回 HTTP {exc.code}: {safe_error_message}"
             ) from exc
         except urllib_error.URLError as exc:
             latency_ms = int((monotonic() - started_at) * 1000)
@@ -118,23 +120,25 @@ class DeepSeekProvider:
                 level="ERROR",
                 turn_trace=turn_trace,
                 provider_name="deepseek",
-                model_name=self.runtime_config.model,
+                model_name=model_name,
                 provider_endpoint=safe_endpoint,
                 request_latency_ms=latency_ms,
                 request_tag=request_tag,
                 error_type=type(exc).__name__,
                 error_message=safe_error_message,
             )
-            raise DeepSeekProviderError(f"无法连接 DeepSeek API：{exc.reason}") from exc
+            raise DeepSeekProviderError(
+                f"无法连接 DeepSeek API: {exc.reason}"
+            ) from exc
         except socket.timeout as exc:
             latency_ms = int((monotonic() - started_at) * 1000)
-            timeout_message = f"DeepSeek API 请求超时（{self.runtime_config.timeout}s）。"
+            timeout_message = f"DeepSeek API 请求超时（{timeout_seconds}s）。"
             log_event(
                 "provider_request_failed",
                 level="ERROR",
                 turn_trace=turn_trace,
                 provider_name="deepseek",
-                model_name=self.runtime_config.model,
+                model_name=model_name,
                 provider_endpoint=safe_endpoint,
                 request_latency_ms=latency_ms,
                 request_tag=request_tag,
@@ -153,7 +157,7 @@ class DeepSeekProvider:
                 level="ERROR",
                 turn_trace=turn_trace,
                 provider_name="deepseek",
-                model_name=self.runtime_config.model,
+                model_name=model_name,
                 provider_endpoint=safe_endpoint,
                 request_latency_ms=latency_ms,
                 request_tag=request_tag,
@@ -168,7 +172,7 @@ class DeepSeekProvider:
             level="DEBUG",
             turn_trace=turn_trace,
             provider_name="deepseek",
-            model_name=self.runtime_config.model,
+            model_name=model_name,
             provider_endpoint=safe_endpoint,
             request_latency_ms=latency_ms,
             request_tag=request_tag,

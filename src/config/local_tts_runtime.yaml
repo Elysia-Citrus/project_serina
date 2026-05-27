@@ -1,0 +1,11 @@
+runtimes:
+  primary:
+    adapter: windows_sapi
+    model_name: windows-sapi-zh
+    voice_name: Microsoft Huihui Desktop - Chinese (Simplified)
+    rate: 0
+    volume: 100
+  clone:
+    adapter: unavailable
+    model_name: gpt-sovits-runtime
+    unavailable_message: GPT-SoVITS local runtime is reserved for future clone profiles and is not configured yet.

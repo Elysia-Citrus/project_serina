@@ -1,0 +1,32 @@
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.tmp_pytest_cache/
+pytest-cache-files-*/
+
+# Local dependency/runtime caches
+.uv-cache/
+.uv-python/
+.npm-cache/
+
+# Temporary test workspaces
+.tmp_test_workspaces/
+
+# Local runtime data and generated artifacts
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/logs/
+artifacts/evals/
+artifacts/voice/
+docx/
+
+# Local external reference projects; not part of the main runtime/test boundary
+memory_selection/
+Neuro/
+
+# Local environment and editor state
+.env
+.env.*
+*.code-workspace

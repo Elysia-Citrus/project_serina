@@ -53,12 +53,35 @@ class MemoryWriter:
         if not extracted_candidates:
             return MemoryWriteResult(skipped_reason="no_high_signal_candidate")
 
+        return self.persist_candidates(extracted_candidates, now=now)
+
+    def extract_and_write(
+        self,
+        turn: MemoryTurnInput,
+        *,
+        now: datetime,
+    ) -> MemoryWriteResult:
+        return self.write_turn(turn, now=now)
+
+    def persist_candidates(
+        self,
+        candidates: list[MemoryCandidate] | tuple[MemoryCandidate, ...],
+        *,
+        now: datetime,
+    ) -> MemoryWriteResult:
+        if not candidates:
+            return MemoryWriteResult(skipped_reason="no_high_signal_candidate")
+
         stored_items: list[MemoryItem] = []
         decisions: list[CandidateWriteResult] = []
         now_iso = now.isoformat(timespec="seconds")
-        active_episodic = self.store.list_items(memory_type="episodic", status="active")
+        active_episodic = self.store.list_items(
+            memory_type="episodic",
+            status="active",
+            review_states=("active", "pending_review"),
+        )
 
-        for candidate in extracted_candidates:
+        for candidate in candidates:
             resolved_candidate = self._resolve_candidate_merge(
                 candidate,
                 active_episodic,

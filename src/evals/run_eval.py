@@ -14,6 +14,7 @@ from src.evals.loader import DEFAULT_SUITE, load_eval_cases, resolve_case_path
 from src.evals.models import EvalCase, EvalCaseResult
 from src.evals.reporter import build_summary, create_output_dir, write_results_bundle
 from src.llm.gateway import GatewayResponse
+from src.memory.models import MemoryCandidate, SessionMemoryCandidate, now_timestamp
 from src.utils.logger import configure_logging, get_trace_log_path
 from src.utils.text_utils import safe_preview
 
@@ -25,7 +26,7 @@ class MockLLMGateway:
     def __init__(self, model_name: str = MOCK_MODEL_NAME) -> None:
         self.model_name = model_name
 
-    def generate(self, messages, turn_trace=None) -> GatewayResponse:
+    def generate(self, messages, turn_trace=None, options=None) -> GatewayResponse:
         user_input = ""
         for message in reversed(messages):
             if message.get("role") == "user":
@@ -58,7 +59,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     configure_logging(app_config.runtime)
 
-    results = [run_single_case(case, app_config, mode=args.mode) for case in cases]
+    results = [
+        run_single_case(case, app_config, mode=args.mode, output_dir=output_dir)
+        for case in cases
+    ]
     summary = build_summary(
         results=results,
         output_dir=output_dir,
@@ -110,12 +114,25 @@ def parse_args(argv: Sequence[str] | None = None) -> Namespace:
         action="store_true",
         help="Include disabled cases from the case file.",
     )
+    parser.add_argument(
+        "--only-enabled",
+        action="store_true",
+        help="Alias for the default behavior of filtering disabled cases.",
+    )
     return parser.parse_args(argv)
 
 
-def run_single_case(case: EvalCase, app_config: AppConfig, *, mode: str) -> EvalCaseResult:
-    coordinator = _build_coordinator(app_config, mode=mode)
+def run_single_case(
+    case: EvalCase,
+    app_config: AppConfig,
+    *,
+    mode: str,
+    output_dir: Path,
+) -> EvalCaseResult:
+    case_config = _build_case_config(app_config, case_id=case.id, output_dir=output_dir)
+    coordinator = _build_coordinator(case_config, mode=mode)
     coordinator.session.history = [dict(message) for message in case.history_messages]
+    _apply_memory_setup(coordinator, case)
 
     try:
         turn_result = coordinator.process_user_message(case.input)
@@ -179,6 +196,15 @@ def _build_coordinator(app_config: AppConfig, *, mode: str) -> Coordinator:
     return Coordinator(mock_config, engine=engine)
 
 
+def _build_case_config(app_config: AppConfig, *, case_id: str, output_dir: Path) -> AppConfig:
+    safe_case_id = "".join(character for character in case_id if character.isalnum() or character in {"-", "_"})
+    runtime = replace(
+        app_config.runtime,
+        memory_store_path=str((output_dir / f"{safe_case_id}.sqlite").resolve()),
+    )
+    return replace(app_config, runtime=runtime)
+
+
 def _build_eval_case_result(
     case: EvalCase,
     turn_result: CoordinatorTurnResult,
@@ -213,6 +239,9 @@ def _build_eval_case_result(
         error_message=None,
         provider_name=turn_result.provider_name,
         model_name=turn_result.model_name,
+        memory_used_count=turn_result.memory_used_count,
+        memory_used_ids=turn_result.memory_selected_ids,
+        time_context_summary=turn_result.time_context_summary,
         tags=case.tags,
         notes=case.notes,
         manual_review_needed=check.manual_review_needed,
@@ -224,6 +253,87 @@ def _build_eval_case_result(
         memory_write_candidate_present=turn_result.memory_write_candidate_present,
         proactive_followup_candidate_present=turn_result.proactive_followup_candidate_present,
     )
+
+
+def _apply_memory_setup(coordinator: Coordinator, case: EvalCase) -> None:
+    if not case.memory_setup:
+        return
+    now = now_timestamp()
+    if coordinator.memory_service.writer is None or coordinator.memory_service.store is None:
+        return
+
+    long_term_candidates: list[MemoryCandidate] = []
+    for index, item in enumerate(case.memory_setup, start=1):
+        content = str(item.get("content", "")).strip()
+        if not content:
+            continue
+        category = str(item.get("category", "recent_event")).strip() or "recent_event"
+        confidence = float(item.get("confidence", 0.82))
+        summary = str(item.get("content_summary", "")).strip() or None
+        topic_key = str(item.get("topic_key", "")).strip() or None
+        source_role = str(item.get("source_role", "user")).strip() or "user"
+        session_only = bool(item.get("session_only", False))
+        if session_only:
+            candidate = SessionMemoryCandidate(
+                session_id=coordinator.session.session_id,
+                turn_id=f"setup_{index}",
+                source_role=source_role,
+                category=category,
+                content=content,
+                canonical_text=content,
+                source_turn=f"setup_{index}",
+                representation="abstract",
+                carryover_kind=_category_to_carryover_kind(category),
+                topic_key=topic_key,
+                content_summary=summary,
+                summary_text=summary,
+                importance=float(item.get("importance", confidence)),
+                confidence=confidence,
+                ttl_days=int(item.get("ttl_days", 3)),
+            )
+            coordinator.memory_service.store.upsert_session_candidate(
+                candidate,
+                now.isoformat(timespec="seconds"),
+            )
+            continue
+
+        long_term_candidates.append(
+            MemoryCandidate(
+                memory_type="profile" if category in {"user_preference", "user_background"} else "episodic",
+                content=content,
+                canonical_text=content,
+                source_turn=f"setup_{index}",
+                source_message_excerpt=safe_preview(content, 60),
+                confidence=confidence,
+                ttl_days=None if category in {"user_preference", "user_background"} else int(item.get("ttl_days", 7)),
+                decay_policy="manual_override" if category in {"user_preference", "user_background"} else "ttl_expiry",
+                candidate_reason=f"eval_memory_setup:{category}",
+                topic_key=topic_key,
+                summary=summary,
+                memory_class=_category_to_memory_class(category),
+                representation="preference" if category == "user_preference" else "abstract",
+            )
+        )
+    if long_term_candidates:
+        coordinator.memory_service.writer.persist_candidates(long_term_candidates, now=now)
+
+
+def _category_to_memory_class(category: str) -> str:
+    if category == "user_preference":
+        return "profile"
+    if category == "task_commitment":
+        return "task"
+    if category == "user_background":
+        return "profile"
+    return "episodic"
+
+
+def _category_to_carryover_kind(category: str) -> str:
+    if category == "task_commitment":
+        return "task"
+    if category == "user_preference":
+        return "profile"
+    return "session"
 
 
 def _generate_mock_response(scene: str, user_input: str) -> str:
@@ -256,6 +366,12 @@ def _generate_mock_response(scene: str, user_input: str) -> str:
         return "老师，那还不错。现在状态松一点了吗？"
     if "日志" in user_input or "项目" in user_input:
         return "老师，这样已经是在往前推了。步子不大也没关系，能持续比一口气冲猛了更重要。"
+    if "说明书" in user_input:
+        return "老师，我会收一点那种说明感，尽量更像和你自然说话，而不是端着解释。"
+    if "刚才" in user_input:
+        return "老师，你还在惦记刚才那件事吧。要是愿意，就把最卡你的那一点接着说给我。"
+    if "这个点" in user_input or "现在这个点" in user_input:
+        return "老师，这个时间点更适合收口而不是硬顶。如果还要继续，也最好只做一点轻量收尾。"
     if "直接说" in user_input or "怎么想" in user_input:
         return "老师，我会直接一点说，但还是想把分寸留住。对我来说，真诚不是把话砸过来，而是把判断说清楚，也把你放在里面。"
     if "刚认识" in user_input:

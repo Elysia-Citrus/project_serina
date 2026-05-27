@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.config.loader import load_app_config
 from src.dialogue.prompt_builder import build_prompt_package
+from src.utils.time_utils import build_time_context, get_local_now
 
 
 class PromptBuilderTests(unittest.TestCase):
@@ -41,9 +42,51 @@ class PromptBuilderTests(unittest.TestCase):
         )
 
         system_prompt = package.messages[0]["content"]
-        self.assertIn("可用记忆片段", system_prompt)
+        self.assertIn("memory context", system_prompt)
         self.assertIn("[episodic] 用户近期事项：在重构 memory 模块", system_prompt)
         self.assertIn("本轮额外修正", system_prompt)
+
+    def test_time_context_block_is_injected(self) -> None:
+        config = load_app_config()
+        now = get_local_now()
+        package = build_prompt_package(
+            user_input="你好",
+            conversation_history=[],
+            persona=config.persona,
+            policy=config.policy,
+            time_context=build_time_context(
+                now=now,
+                session_started_at=now,
+            ),
+        )
+
+        system_prompt = package.messages[0]["content"]
+        self.assertIn("time context", system_prompt)
+        self.assertTrue(
+            any(block.name == "time_context" for block in package.metadata.prompt_blocks)
+        )
+        self.assertIsNotNone(package.metadata.time_context_summary)
+
+    def test_continuing_context_block_is_separate_from_memory_block(self) -> None:
+        config = load_app_config()
+        startup_snippet = "[startup-summary] Last session focused on: schema cleanup and test backfill"
+        package = build_prompt_package(
+            user_input="继续",
+            conversation_history=[],
+            persona=config.persona,
+            policy=config.policy,
+            memory_snippets=(startup_snippet,),
+            continuing_context_snippets=(startup_snippet,),
+        )
+
+        system_prompt = package.messages[0]["content"]
+        self.assertIn("[continuing context]", system_prompt)
+        self.assertIn("not full chat history", system_prompt)
+        self.assertEqual(system_prompt.count(startup_snippet), 1)
+        self.assertTrue(
+            any(block.name == "continuing_context" for block in package.metadata.prompt_blocks)
+        )
+        self.assertEqual(package.metadata.continuing_context_summary, "1 items")
 
 
 if __name__ == "__main__":

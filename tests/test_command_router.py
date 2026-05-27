@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+
 from src.app.command_router import CommandRouter
+from src.assist_llm import AssistLLMService
 from src.memory.admin import MemoryAdminService
 from src.memory.manager import MemoryManager
+from src.observability.trace_admin import TraceAdminService
 from tests.regression.helpers import build_memory_item
 from tests.regression.models import MemorySeed
-from tests.support import TemporaryWorkspace, build_test_config
+from tests.support import DummyGateway, TemporaryWorkspace, build_test_config
 
 
 def test_memory_command_router_lists_and_filters_memories() -> None:
@@ -123,5 +127,139 @@ def test_memory_command_router_respects_disabled_mode() -> None:
         assert result is not None and result.handled
         assert result.success is False
         assert "disabled" in (result.output_text or "")
+    finally:
+        workspace.cleanup()
+
+
+def test_trace_summary_command_generates_assist_summary_from_log_file() -> None:
+    workspace = TemporaryWorkspace()
+    try:
+        config = build_test_config(workspace.db_path)
+        trace_file = workspace.root / "trace.jsonl"
+        trace_file.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "event_name": "reply_guard_checked",
+                            "turn_id": "turn-a",
+                            "scene": "comfort",
+                            "reply_guard_initial_action": "retry_once",
+                            "reply_guard_final_action": "retry_once",
+                            "reply_guard_violations": ["scene_conflict", "over_preachy"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "event_name": "assist_llm_call_failed",
+                            "turn_id": "turn-a",
+                            "assist_llm_task": "guard_retry_rewrite",
+                            "assist_llm_error_type": "GatewayError",
+                        },
+                        ensure_ascii=False,
+                    ),
+                ]
+            ),
+            encoding="utf-8",
+        )
+        gateway = DummyGateway(
+            [
+                (
+                    '{"summary":"Recent guard traces cluster around comfort-scene preachy retries.",'
+                    '"common_patterns":["scene_conflict + over_preachy","assist retry failure"],'
+                    '"recommended_focus":"Harden comfort rewrite prompts before adding more rules."}'
+                )
+            ]
+        )
+        trace_admin = TraceAdminService(
+            assist_service=AssistLLMService.from_app_config(config, gateway),
+            runtime=config.runtime,
+            project_root=config.config_dir.parent.parent,
+        )
+        router = CommandRouter(
+            memory_review_enabled=True,
+            memory_admin=MemoryAdminService(MemoryManager.from_app_config(config)),
+            trace_admin=trace_admin,
+        )
+
+        result = router.route(f'/trace summary --file "{trace_file}" --limit 5')
+
+        assert result is not None and result.handled
+        assert result.success is True
+        assert "trace file:" in (result.output_text or "")
+        assert "comfort-scene preachy retries" in (result.output_text or "")
+    finally:
+        workspace.cleanup()
+
+
+def test_badcase_draft_command_builds_latest_turn_draft_from_log_file() -> None:
+    workspace = TemporaryWorkspace()
+    try:
+        config = build_test_config(workspace.db_path)
+        trace_file = workspace.root / "trace.jsonl"
+        trace_file.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "event_name": "turn_received",
+                            "turn_id": "turn-b",
+                            "scene": "comfort",
+                            "cleaned_input_preview": "我今天真的有点撑不住。",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "event_name": "dialogue_completed",
+                            "turn_id": "turn-b",
+                            "scene": "comfort",
+                            "memory_selected_ids": ["memory-1"],
+                            "response_preview": "你应该立刻停下内耗，按下面三步马上执行。",
+                            "reply_guard_initial_action": "retry_once",
+                            "reply_guard_final_action": "safe_fallback",
+                            "reply_guard_initial_violations": [
+                                "scene_conflict",
+                                "over_preachy",
+                            ],
+                            "reply_guard_violations": ["scene_conflict", "over_preachy"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                ]
+            ),
+            encoding="utf-8",
+        )
+        gateway = DummyGateway(
+            [
+                (
+                    '{"case_id":"draft_turn-b","scene":"comfort","user_input":"我今天真的有点撑不住。",'
+                    '"injected_memories":["memory-1"],'
+                    '"assistant_reply":"你应该立刻停下内耗，按下面三步马上执行。",'
+                    '"observed_violations":["scene_conflict","over_preachy"],'
+                    '"suggested_expected_categories":["scene_conflict","over_preachy"],'
+                    '"suggested_expected_action":"safe_fallback",'
+                    '"reviewer_notes":"Please confirm whether this should stay severe."}'
+                )
+            ]
+        )
+        trace_admin = TraceAdminService(
+            assist_service=AssistLLMService.from_app_config(config, gateway),
+            runtime=config.runtime,
+            project_root=config.config_dir.parent.parent,
+        )
+        router = CommandRouter(
+            memory_review_enabled=True,
+            memory_admin=MemoryAdminService(MemoryManager.from_app_config(config)),
+            trace_admin=trace_admin,
+        )
+
+        result = router.route(f'/badcase draft latest --file "{trace_file}"')
+
+        assert result is not None and result.handled
+        assert result.success is True
+        assert '"case_id": "draft_turn-b"' in (result.output_text or "")
+        assert '"suggested_expected_action": "safe_fallback"' in (result.output_text or "")
     finally:
         workspace.cleanup()
